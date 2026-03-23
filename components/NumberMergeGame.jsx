@@ -266,42 +266,50 @@ function GameScreen({ onGameOver, onMenu }) {
     return g;
   });
   const [score, setScore] = useState(0);
-  const [gameState, setGameState] = useState('playing');
+  const [gameState, setGameState] = useState('playing'); // 'playing' | 'won' | 'lost'
   const [hasAcknowledgedWin, setHasAcknowledgedWin] = useState(false);
 
+  // All mutable game state mirrored to refs so gesture handlers never go stale
   const gridRef = useRef(grid);
   const scoreRef = useRef(score);
   const gameStateRef = useRef(gameState);
   const hasWonRef = useRef(hasAcknowledgedWin);
-  const touchStartRef = useRef(null);
 
   useEffect(() => { gridRef.current = grid; }, [grid]);
   useEffect(() => { scoreRef.current = score; }, [score]);
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
   useEffect(() => { hasWonRef.current = hasAcknowledgedWin; }, [hasAcknowledgedWin]);
 
+  // Touch tracking — stored in refs, never cause re-renders
+  const touchStartRef = useRef(null);
+  const touchMovedRef = useRef(false);
+
   const GAP = 6;
   const BOARD_PAD = 12;
   const boardSize = containerWidth > 0 ? containerWidth - 32 : 0;
   const cellSize = boardSize > 0 ? (boardSize - BOARD_PAD * 2 - GAP * (GRID - 1)) / GRID : 0;
 
+  // Minimum swipe distance in pixels — generous enough to feel intentional
+  const MIN_SWIPE = 30;
+  // Directional bias: horizontal swipe must be this much larger than vertical (and vice versa)
+  const DIR_RATIO = 1.3;
+
   const doMove = useCallback((direction) => {
+    if (gameStateRef.current === 'lost') return;
+    if (gameStateRef.current === 'won' && !hasWonRef.current) return;
+
     const currentGrid = gridRef.current;
-    const currentScore = scoreRef.current;
-    const currentGameState = gameStateRef.current;
-    const currentHasWon = hasWonRef.current;
-
-    if (currentGameState === 'lost' || (currentGameState === 'won' && !currentHasWon)) return;
-
     const result = move(currentGrid, direction);
-    if (gridsEqual(currentGrid, result.grid)) return;
+
+    if (gridsEqual(currentGrid, result.grid)) return; // nothing moved
 
     const newGrid = addRandom(result.grid);
-    const newScore = currentScore + result.score;
+    const newScore = scoreRef.current + result.score;
+
     setGrid(newGrid);
     setScore(newScore);
 
-    if (hasWon(newGrid) && !currentHasWon) {
+    if (hasWon(newGrid) && !hasWonRef.current) {
       setGameState('won');
       setTimeout(() => onGameOver(newScore, true), 400);
       return;
@@ -328,29 +336,68 @@ function GameScreen({ onGameOver, onMenu }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [doMove]);
 
-  // Touch handlers directly on board
-  const handleTouchStart = useCallback((e) => {
-    const touch = e.nativeEvent.touches[0];
-    touchStartRef.current = { x: touch.pageX, y: touch.pageY };
-  }, []);
+  // ── Gesture responder on the board ──────────────────────────────────────
+  // We use the low-level responder API so we get precise raw coordinates.
+  // onMoveShouldSetResponder fires on movement — this lets parent scrollviews
+  // keep ownership when the user is scrolling, while we claim it for swipes.
 
-  const handleTouchEnd = useCallback((e) => {
-    if (!touchStartRef.current) return;
-    const touch = e.nativeEvent.changedTouches[0];
-    const dx = touch.pageX - touchStartRef.current.x;
-    const dy = touch.pageY - touchStartRef.current.y;
-    touchStartRef.current = null;
+  const boardResponder = {
+    // Claim touch immediately on press-down
+    onStartShouldSetResponder: () => true,
+    onStartShouldSetResponderCapture: () => false,
 
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    if (absDx < 12 && absDy < 12) return;
+    // Also claim if movement is primarily horizontal (avoids fighting scroll)
+    onMoveShouldSetResponder: (e) => {
+      if (!touchStartRef.current) return false;
+      const dx = Math.abs(e.nativeEvent.pageX - touchStartRef.current.x);
+      const dy = Math.abs(e.nativeEvent.pageY - touchStartRef.current.y);
+      // Claim if moved enough in either axis
+      return dx > 8 || dy > 8;
+    },
 
-    if (absDx > absDy) {
-      doMove(dx > 0 ? 'right' : 'left');
-    } else {
-      doMove(dy > 0 ? 'down' : 'up');
-    }
-  }, [doMove]);
+    onResponderGrant: (e) => {
+      touchStartRef.current = {
+        x: e.nativeEvent.pageX,
+        y: e.nativeEvent.pageY,
+      };
+      touchMovedRef.current = false;
+    },
+
+    onResponderMove: (e) => {
+      if (!touchStartRef.current) return;
+      const dx = e.nativeEvent.pageX - touchStartRef.current.x;
+      const dy = e.nativeEvent.pageY - touchStartRef.current.y;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        touchMovedRef.current = true;
+      }
+    },
+
+    onResponderRelease: (e) => {
+      if (!touchStartRef.current) return;
+
+      const dx = e.nativeEvent.pageX - touchStartRef.current.x;
+      const dy = e.nativeEvent.pageY - touchStartRef.current.y;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      touchStartRef.current = null;
+
+      // Must travel at least MIN_SWIPE pixels to count as a swipe
+      if (absDx < MIN_SWIPE && absDy < MIN_SWIPE) return;
+
+      // Must be clearly directional (one axis dominates)
+      if (absDx > absDy * DIR_RATIO) {
+        doMove(dx > 0 ? 'right' : 'left');
+      } else if (absDy > absDx * DIR_RATIO) {
+        doMove(dy > 0 ? 'down' : 'up');
+      }
+      // If neither dominates (diagonal), ignore — prevents misfire
+    },
+
+    onResponderTerminate: () => {
+      touchStartRef.current = null;
+    },
+  };
 
   const resetGame = () => {
     let g = createEmpty();
@@ -379,13 +426,23 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       </View>
 
+      {/* Direction hint arrows */}
+      {cellSize > 0 && (
+        <View style={[s.dirHintContainer, { width: boardSize }]}>
+          <Text style={s.dirHintArrow}>←</Text>
+          <View style={s.dirHintVertical}>
+            <Text style={s.dirHintArrow}>↑</Text>
+            <Text style={s.dirHintArrow}>↓</Text>
+          </View>
+          <Text style={s.dirHintArrow}>→</Text>
+        </View>
+      )}
+
       {/* Board — swipe directly on it */}
       {cellSize > 0 && (
         <View
           style={[s.board, { width: boardSize, height: boardSize, padding: BOARD_PAD }]}
-          onStartShouldSetResponder={() => true}
-          onResponderGrant={handleTouchStart}
-          onResponderRelease={handleTouchEnd}
+          {...boardResponder}
         >
           {grid.map((row, r) => (
             <View key={r} style={[s.boardRow, { gap: GAP }]}>
@@ -397,7 +454,7 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       )}
 
-      <Text style={s.hint}>Swipe anywhere on the board to move tiles</Text>
+      <Text style={s.hint}>Swipe the board in any direction to slide tiles</Text>
 
       <TouchableOpacity style={s.newGameBtn} onPress={resetGame} activeOpacity={0.7}>
         <Text style={s.newGameBtnText}>↺  NEW GAME</Text>
@@ -465,7 +522,7 @@ const s = StyleSheet.create({
   howTitle: { color: '#3a3a5a', fontSize: 10, fontWeight: '800', letterSpacing: 2 },
   howText: { color: '#3a3a5a', fontSize: 12, textAlign: 'center', lineHeight: 18, maxWidth: 260 },
 
-  gameContainer: { flex: 1, alignItems: 'center', backgroundColor: '#0d0d17', paddingTop: Platform.OS === 'android' ? 60 : 12, paddingBottom: 16, gap: 20 },
+  gameContainer: { flex: 1, alignItems: 'center', backgroundColor: '#0d0d17', paddingTop: Platform.OS === 'android' ? 60 : 12, paddingBottom: 16, gap: 12 },
   gameHeader: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 16 },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   backBtnText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
@@ -473,6 +530,15 @@ const s = StyleSheet.create({
   scoreBox: { alignItems: 'center', backgroundColor: '#12121e', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6, minWidth: 64, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   scoreNum: { color: '#F39C12', fontSize: 18, fontWeight: '900' },
   scoreLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+
+  dirHintContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  dirHintVertical: { flexDirection: 'column', alignItems: 'center', gap: 2 },
+  dirHintArrow: { color: 'rgba(255,255,255,0.08)', fontSize: 18, fontWeight: '900' },
 
   board: { backgroundColor: '#12121e', borderRadius: 14, gap: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   boardRow: { flexDirection: 'row' },

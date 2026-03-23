@@ -1,5 +1,8 @@
 // NumberDropGame.jsx — Drop The Number Clone for Arcade Vault
-// Touch controls: swipe left/right on the board to move, tap to hard drop
+// Touch controls:
+//   Single tap LEFT half of board  = move block left
+//   Single tap RIGHT half of board = move block right
+//   Double tap anywhere            = hard drop
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -11,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const COLS = 5;
 const ROWS = 8;
 const START_SPEED = 800;
+const DOUBLE_TAP_DELAY = 280; // ms window for double-tap
 
 const TILE_COLORS = {
   2: { bg: '#2B2B36', text: '#E7E3F3' },
@@ -165,8 +169,9 @@ function HomeScreen({ onStart, highScore }) {
       <View style={st.howBox}>
         <Text style={st.howTitle}>CONTROLS</Text>
         <Text style={st.howText}>
-          {'Swipe left/right to move the block\n'}
-          {'Tap the board to hard drop instantly'}
+          {'Tap LEFT side of board → move block left\n'}
+          {'Tap RIGHT side of board → move block right\n'}
+          {'Double-tap anywhere → hard drop instantly'}
         </Text>
       </View>
     </View>
@@ -230,7 +235,10 @@ function GameScreen({ onGameOver, onMenu }) {
   const maxTileRef = useRef(maxTile);
   const settlingRef = useRef(settling);
   const gameOverRef = useRef(gameOver);
-  const touchStartRef = useRef(null);
+
+  // Double-tap detection
+  const lastTapRef = useRef(0);
+  const doubleTapTimerRef = useRef(null);
 
   useEffect(() => { boardRef.current = board; }, [board]);
   useEffect(() => { pieceRef.current = piece; }, [piece]);
@@ -323,7 +331,7 @@ function GameScreen({ onGameOver, onMenu }) {
     return () => clearInterval(interval);
   }, [maxTile, score, gameOver, settling, moveDown]);
 
-  // Keyboard
+  // Keyboard (web)
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const handleKey = (e) => {
@@ -343,35 +351,41 @@ function GameScreen({ onGameOver, onMenu }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [moveHorizontal, moveDown, hardDrop]);
 
-  // Touch handlers directly on board
-  const handleTouchStart = useCallback((e) => {
-    const touch = e.nativeEvent.touches[0];
-    touchStartRef.current = { x: touch.pageX, y: touch.pageY };
-  }, []);
+  // ── Tap handler: single tap = move left/right, double tap = hard drop ──
+  const handleBoardPress = useCallback((e) => {
+    if (gameOverRef.current || settlingRef.current) return;
 
-  const handleTouchEnd = useCallback((e) => {
-    if (!touchStartRef.current) return;
-    const touch = e.nativeEvent.changedTouches[0];
-    const dx = touch.pageX - touchStartRef.current.x;
-    const dy = touch.pageY - touchStartRef.current.y;
-    const absDx = Math.abs(dx);
-    const absDy = Math.abs(dy);
-    touchStartRef.current = null;
+    const now = Date.now();
+    const timeSinceLast = now - lastTapRef.current;
 
-    // Tap = hard drop
-    if (absDx < 10 && absDy < 10) {
+    if (timeSinceLast < DOUBLE_TAP_DELAY) {
+      // Double tap — cancel pending single-tap action and hard drop
+      if (doubleTapTimerRef.current) {
+        clearTimeout(doubleTapTimerRef.current);
+        doubleTapTimerRef.current = null;
+      }
+      lastTapRef.current = 0;
       hardDrop();
       return;
     }
 
-    // Horizontal swipe = move
-    if (absDx > absDy) {
-      moveHorizontal(dx > 0 ? 1 : -1);
-    } else if (dy > 0) {
-      // Swipe down = hard drop
-      hardDrop();
-    }
-  }, [moveHorizontal, hardDrop]);
+    lastTapRef.current = now;
+
+    // Capture touch X position for left/right decision
+    const tapX = e.nativeEvent.locationX;
+    const boardWidth = layout.w; // board fills layout width
+
+    // Schedule single-tap action (deferred so double-tap can cancel it)
+    doubleTapTimerRef.current = setTimeout(() => {
+      doubleTapTimerRef.current = null;
+      if (gameOverRef.current || settlingRef.current) return;
+      if (tapX < boardWidth / 2) {
+        moveHorizontal(-1);
+      } else {
+        moveHorizontal(1);
+      }
+    }, DOUBLE_TAP_DELAY);
+  }, [hardDrop, moveHorizontal, layout.w]);
 
   // Cell size math
   const maxBoardHeight = layout.h > 0 ? layout.h - 160 : 0;
@@ -411,13 +425,12 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       </View>
 
-      {/* Board — touch directly on it */}
+      {/* Board — tap left/right to move, double-tap to drop */}
       {cellSize > 0 && (
-        <View
+        <TouchableOpacity
           style={[st.board, { width: boardWidth, height: boardHeight }]}
-          onStartShouldSetResponder={() => true}
-          onResponderGrant={handleTouchStart}
-          onResponderRelease={handleTouchEnd}
+          onPress={handleBoardPress}
+          activeOpacity={1}
         >
           {/* Placed tiles */}
           {board.map((row, r) =>
@@ -482,10 +495,16 @@ function GameScreen({ onGameOver, onMenu }) {
               </Text>
             </View>
           )}
-        </View>
+
+          {/* Left / right tap zone indicators */}
+          <View style={st.tapZones} pointerEvents="none">
+            <Text style={st.tapZoneLeft}>◀</Text>
+            <Text style={st.tapZoneRight}>▶</Text>
+          </View>
+        </TouchableOpacity>
       )}
 
-      <Text style={st.hint}>Swipe ←→ to move  •  Tap or swipe ↓ to drop</Text>
+      <Text style={st.hint}>Tap ◀ left side / right side ▶  •  Double-tap to drop ⬇</Text>
     </View>
   );
 }
@@ -569,6 +588,18 @@ const st = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
     overflow: 'hidden',
   },
+
+  tapZones: {
+    position: 'absolute',
+    bottom: 8,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+  },
+  tapZoneLeft: { color: 'rgba(255,255,255,0.07)', fontSize: 18, fontWeight: '900' },
+  tapZoneRight: { color: 'rgba(255,255,255,0.07)', fontSize: 18, fontWeight: '900' },
 
   cellTile: { borderRadius: 8, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 3 },
   cellTileText: { fontWeight: '900' },

@@ -177,106 +177,131 @@ function GameOverScreen({ score, lines, level, highScore, onReplay, onMenu }) {
 // ─── GAME SCREEN ────────────────────────────────────────────────────────────
 function GameScreen({ onGameOver, onMenu }) {
   const [layout, setLayout] = useState({ width: 0, height: 0 });
-  const [board, setBoard] = useState(createBoard);
-  const [piece, setPiece] = useState(randomPiece);
-  const [nextPiece, setNextPiece] = useState(randomPiece);
+
+  // ── Core game state kept ONLY in refs to avoid stale closures ──
+  const boardRef = useRef(createBoard());
+  const pieceRef = useRef(randomPiece());
+  const nextPieceRef = useRef(randomPiece());
+  const scoreRef = useRef(0);
+  const linesRef = useRef(0);
+  const levelRef = useRef(1);
+  const gameOverRef = useRef(false);
+  const lockingRef = useRef(false); // prevent double-lock
+
+  // Derived display state (only for rendering)
+  const [displayBoard, setDisplayBoard] = useState(() => boardRef.current);
+  const [displayPiece, setDisplayPiece] = useState(() => pieceRef.current);
+  const [displayNext, setDisplayNext] = useState(() => nextPieceRef.current);
   const [score, setScore] = useState(0);
   const [lines, setLines] = useState(0);
   const [level, setLevel] = useState(1);
   const [gameOver, setGameOver] = useState(false);
 
-  const boardRef = useRef(board);
-  const pieceRef = useRef(piece);
-  const nextRef = useRef(nextPiece);
-  const scoreRef = useRef(score);
-  const linesRef = useRef(lines);
-  const levelRef = useRef(level);
-  const gameOverRef = useRef(gameOver);
   const touchStartRef = useRef(null);
 
-  useEffect(() => { boardRef.current = board; }, [board]);
-  useEffect(() => { pieceRef.current = piece; }, [piece]);
-  useEffect(() => { nextRef.current = nextPiece; }, [nextPiece]);
-  useEffect(() => { scoreRef.current = score; }, [score]);
-  useEffect(() => { linesRef.current = lines; }, [lines]);
-  useEffect(() => { levelRef.current = level; }, [level]);
-  useEffect(() => { gameOverRef.current = gameOver; }, [gameOver]);
+  const syncDisplay = useCallback(() => {
+    setDisplayBoard([...boardRef.current]);
+    setDisplayPiece({ ...pieceRef.current });
+    setDisplayNext({ ...nextPieceRef.current });
+    setScore(scoreRef.current);
+    setLines(linesRef.current);
+    setLevel(levelRef.current);
+  }, []);
 
-  const RESERVED_HEIGHT = 130;
-  const maxBoardHeight = layout.height > 0 ? layout.height - RESERVED_HEIGHT : 0;
-  const maxBoardWidth = layout.width > 0 ? layout.width - 32 : 0;
-  const cellFromWidth = maxBoardWidth > 0 ? Math.floor(maxBoardWidth / COLS) : 0;
-  const cellFromHeight = maxBoardHeight > 0 ? Math.floor(maxBoardHeight / ROWS) : 0;
-  const cellSize = Math.min(cellFromWidth, cellFromHeight, 28);
-
+  // ── Lock piece — fully ref-driven, no stale closures ──
   const lockPiece = useCallback(() => {
-    const b = boardRef.current;
-    const p = pieceRef.current;
-    const np = nextRef.current;
-    const newBoard = placePiece(b, p);
+    if (gameOverRef.current || lockingRef.current) return;
+    lockingRef.current = true;
+
+    const currentPiece = pieceRef.current;
+    const currentBoard = boardRef.current;
+
+    // Place the piece
+    const newBoard = placePiece(currentBoard, currentPiece);
+
+    // Clear lines
     const { board: clearedBoard, cleared } = clearLines(newBoard);
     const lineScores = [0, 100, 300, 500, 800];
     const newLines = linesRef.current + cleared;
     const newLevel = Math.floor(newLines / 10) + 1;
     const newScore = scoreRef.current + (lineScores[cleared] || 0) * levelRef.current;
-    setBoard(clearedBoard);
-    setLines(newLines);
-    setLevel(newLevel);
-    setScore(newScore);
-    if (!isValid(clearedBoard, np.shape, np.row, np.col)) {
+
+    boardRef.current = clearedBoard;
+    linesRef.current = newLines;
+    levelRef.current = newLevel;
+    scoreRef.current = newScore;
+
+    // Promote next piece
+    const incoming = nextPieceRef.current;
+    const spawnRow = incoming.row;
+    const spawnCol = incoming.col;
+
+    // Check if the spawn position is blocked => game over
+    if (!isValid(clearedBoard, incoming.shape, spawnRow, spawnCol)) {
+      gameOverRef.current = true;
       setGameOver(true);
+      syncDisplay();
       onGameOver(newScore, newLines, newLevel);
+      lockingRef.current = false;
       return;
     }
-    setPiece(np);
-    setNextPiece(randomPiece());
-  }, [onGameOver]);
+
+    pieceRef.current = incoming;
+    nextPieceRef.current = randomPiece();
+    lockingRef.current = false;
+    syncDisplay();
+  }, [onGameOver, syncDisplay]);
 
   const moveDown = useCallback(() => {
-    if (gameOverRef.current) return;
+    if (gameOverRef.current || lockingRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     if (isValid(b, p.shape, p.row + 1, p.col)) {
-      setPiece({ ...p, row: p.row + 1 });
+      pieceRef.current = { ...p, row: p.row + 1 };
+      syncDisplay();
     } else {
       lockPiece();
     }
-  }, [lockPiece]);
+  }, [lockPiece, syncDisplay]);
 
   const moveHorizontal = useCallback((dir) => {
-    if (gameOverRef.current) return;
+    if (gameOverRef.current || lockingRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     const newCol = p.col + dir;
     if (isValid(b, p.shape, p.row, newCol)) {
-      setPiece({ ...p, col: newCol });
+      pieceRef.current = { ...p, col: newCol };
+      syncDisplay();
     }
-  }, []);
+  }, [syncDisplay]);
 
   const rotatePiece = useCallback(() => {
-    if (gameOverRef.current) return;
+    if (gameOverRef.current || lockingRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     const rotated = rotate(p.shape);
     for (const kick of [0, -1, 1, -2, 2]) {
       if (isValid(b, rotated, p.row, p.col + kick)) {
-        setPiece({ ...p, shape: rotated, col: p.col + kick });
+        pieceRef.current = { ...p, shape: rotated, col: p.col + kick };
+        syncDisplay();
         return;
       }
     }
-  }, []);
+  }, [syncDisplay]);
 
   const hardDrop = useCallback(() => {
-    if (gameOverRef.current) return;
+    if (gameOverRef.current || lockingRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     let dropRow = p.row;
     while (isValid(b, p.shape, dropRow + 1, p.col)) dropRow++;
-    setPiece(prev => ({ ...prev, row: dropRow }));
-    setTimeout(() => lockPiece(), 50);
-  }, [lockPiece]);
+    pieceRef.current = { ...p, row: dropRow };
+    syncDisplay();
+    // Small delay so player sees the piece at bottom before it locks
+    setTimeout(() => lockPiece(), 30);
+  }, [lockPiece, syncDisplay]);
 
-  // Gravity tick
+  // Gravity tick — re-subscribes when level changes
   useEffect(() => {
     if (gameOver) return;
     const speed = Math.max(100, TICK_MS - (level - 1) * 50);
@@ -303,9 +328,9 @@ function GameScreen({ onGameOver, onMenu }) {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [moveHorizontal, moveDown, rotatePiece, hardDrop]);
+  }, [moveHorizontal, rotatePiece, hardDrop]);
 
-  // Touch handlers — swipe on board
+  // Touch handlers
   const handleTouchStart = useCallback((e) => {
     const touch = e.nativeEvent.touches[0];
     touchStartRef.current = { x: touch.pageX, y: touch.pageY };
@@ -320,48 +345,44 @@ function GameScreen({ onGameOver, onMenu }) {
     const absDy = Math.abs(dy);
     touchStartRef.current = null;
 
-    // Tap = rotate
     if (absDx < 10 && absDy < 10) {
       rotatePiece();
       return;
     }
-
     if (absDx > absDy) {
-      // Horizontal swipe — move
       moveHorizontal(dx > 0 ? 1 : -1);
     } else {
-      if (dy > 0) {
-        // Swipe down — hard drop
-        hardDrop();
-      } else {
-        // Swipe up — rotate
-        rotatePiece();
-      }
+      if (dy > 0) hardDrop();
+      else rotatePiece();
     }
   }, [moveHorizontal, rotatePiece, hardDrop]);
 
-  // Render board
-  const displayBoard = board.map(r => [...r]);
-  if (piece) {
-    const { shape, row, col, type } = piece;
-    for (let r = 0; r < shape.length; r++)
-      for (let c = 0; c < shape[0].length; c++)
-        if (shape[r][c] && row + r >= 0 && row + r < ROWS && col + c >= 0 && col + c < COLS)
-          displayBoard[row + r][col + c] = type;
-  }
-
-  // Ghost piece
-  if (piece) {
-    let ghostRow = piece.row;
-    while (isValid(board, piece.shape, ghostRow + 1, piece.col)) ghostRow++;
-    if (ghostRow !== piece.row) {
-      for (let r = 0; r < piece.shape.length; r++)
-        for (let c = 0; c < piece.shape[0].length; c++)
-          if (piece.shape[r][c] && ghostRow + r >= 0 && ghostRow + r < ROWS && !displayBoard[ghostRow + r][piece.col + c])
-            displayBoard[ghostRow + r][piece.col + c] = 'ghost';
+  // Build render board (current piece + ghost overlaid on settled board)
+  const renderBoard = displayBoard.map(r => [...r]);
+  const rp = displayPiece;
+  if (rp && !gameOver) {
+    // Ghost
+    let ghostRow = rp.row;
+    while (isValid(boardRef.current, rp.shape, ghostRow + 1, rp.col)) ghostRow++;
+    if (ghostRow !== rp.row) {
+      for (let r = 0; r < rp.shape.length; r++)
+        for (let c = 0; c < rp.shape[0].length; c++)
+          if (rp.shape[r][c] && ghostRow + r >= 0 && ghostRow + r < ROWS && !renderBoard[ghostRow + r][rp.col + c])
+            renderBoard[ghostRow + r][rp.col + c] = 'ghost';
     }
+    // Active piece
+    for (let r = 0; r < rp.shape.length; r++)
+      for (let c = 0; c < rp.shape[0].length; c++)
+        if (rp.shape[r][c] && rp.row + r >= 0 && rp.row + r < ROWS && rp.col + c >= 0 && rp.col + c < COLS)
+          renderBoard[rp.row + r][rp.col + c] = rp.type;
   }
 
+  const RESERVED_HEIGHT = 130;
+  const maxBoardHeight = layout.height > 0 ? layout.height - RESERVED_HEIGHT : 0;
+  const maxBoardWidth = layout.width > 0 ? layout.width - 32 : 0;
+  const cellFromWidth = maxBoardWidth > 0 ? Math.floor(maxBoardWidth / COLS) : 0;
+  const cellFromHeight = maxBoardHeight > 0 ? Math.floor(maxBoardHeight / ROWS) : 0;
+  const cellSize = Math.min(cellFromWidth, cellFromHeight, 28);
   const boardPixelWidth = cellSize * COLS + 4;
   const boardPixelHeight = cellSize * ROWS + 4;
 
@@ -398,12 +419,12 @@ function GameScreen({ onGameOver, onMenu }) {
         <View style={s.infoItem}>
           <Text style={s.infoLabel}>NEXT</Text>
           <View style={s.nextPieceBox}>
-            {nextPiece.shape.map((row, r) => (
+            {displayNext.shape.map((row, r) => (
               <View key={r} style={{ flexDirection: 'row' }}>
                 {row.map((v, c) => (
                   <View key={c} style={{
                     width: 10, height: 10,
-                    backgroundColor: v ? PIECE_COLORS[nextPiece.type] : 'transparent',
+                    backgroundColor: v ? PIECE_COLORS[displayNext.type] : 'transparent',
                     borderRadius: 2,
                   }} />
                 ))}
@@ -413,7 +434,7 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       </View>
 
-      {/* Board — touch directly on it */}
+      {/* Board */}
       {cellSize > 0 && (
         <View
           style={[s.board, { width: boardPixelWidth, height: boardPixelHeight, padding: 2 }]}
@@ -421,7 +442,7 @@ function GameScreen({ onGameOver, onMenu }) {
           onResponderGrant={handleTouchStart}
           onResponderRelease={handleTouchEnd}
         >
-          {displayBoard.map((row, r) => (
+          {renderBoard.map((row, r) => (
             <View key={r} style={{ flexDirection: 'row' }}>
               {row.map((cell, c) => (
                 <View
@@ -528,7 +549,6 @@ const s = StyleSheet.create({
   },
   howTitle: { color: '#2980B9', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
   howText: { color: '#6B6B8E', fontSize: 12, textAlign: 'center', lineHeight: 20 },
-
   gameContainer: {
     flex: 1, alignItems: 'center', backgroundColor: '#0d0d17',
     paddingTop: Platform.OS === 'android' ? 60 : 8, gap: 8,
@@ -563,17 +583,14 @@ const s = StyleSheet.create({
   infoVal: { color: '#fff', fontSize: 16, fontWeight: '900' },
   infoLabel: { color: '#6B6B8E', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
   nextPieceBox: { marginTop: 4, gap: 1 },
-
   board: {
     backgroundColor: '#0a0a14', borderRadius: 8,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
-
   hint: {
     color: '#2a2a48', fontSize: 10, fontWeight: '600',
     letterSpacing: 0.3, textAlign: 'center', paddingHorizontal: 16,
   },
-
   overlay: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#0d0d17', gap: 16, padding: 32,
