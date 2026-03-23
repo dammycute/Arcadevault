@@ -375,11 +375,10 @@ function GameScreen({ onGameOver, onMenu }) {
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 5 || Math.abs(g.dy) > 5,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (_, gesture) => {
         const { dx, dy } = gesture;
-        if (Math.abs(dx) < SWIPE_THRESHOLD && Math.abs(dy) < SWIPE_THRESHOLD) return;
+        if (Math.abs(dx) < 15 && Math.abs(dy) < 15) return;
         if (Math.abs(dx) > Math.abs(dy)) {
           doMove(dx > 0 ? 'right' : 'left');
         } else {

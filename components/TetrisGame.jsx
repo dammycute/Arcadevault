@@ -23,13 +23,13 @@ const PIECE_COLORS = {
 };
 
 const PIECES = {
-  I: [[1,1,1,1]],
-  O: [[1,1],[1,1]],
-  T: [[0,1,0],[1,1,1]],
-  S: [[0,1,1],[1,1,0]],
-  Z: [[1,1,0],[0,1,1]],
-  J: [[1,0,0],[1,1,1]],
-  L: [[0,0,1],[1,1,1]],
+  I: [[1, 1, 1, 1]],
+  O: [[1, 1], [1, 1]],
+  T: [[0, 1, 0], [1, 1, 1]],
+  S: [[0, 1, 1], [1, 1, 0]],
+  Z: [[1, 1, 0], [0, 1, 1]],
+  J: [[1, 0, 0], [1, 1, 1]],
+  L: [[0, 0, 1], [1, 1, 1]],
 };
 
 const PIECE_TYPES = Object.keys(PIECES);
@@ -105,7 +105,7 @@ function HomeScreen({ onStart, highScore }) {
       <Text style={s.homeSubtitle}>Drop blocks • Clear lines • Survive</Text>
 
       <View style={s.previewBlocks}>
-        {['I','T','S','Z','O','L','J'].map(t => (
+        {['I', 'T', 'S', 'Z', 'O', 'L', 'J'].map(t => (
           <View key={t} style={[s.previewBlock, { backgroundColor: PIECE_COLORS[t] }]} />
         ))}
       </View>
@@ -208,6 +208,24 @@ function GameScreen({ onGameOver, onMenu }) {
   const cellFromWidth = maxBoardWidth > 0 ? Math.floor(maxBoardWidth / COLS) : 0;
   const cellFromHeight = maxBoardHeight > 0 ? Math.floor(maxBoardHeight / ROWS) : 0;
   const cellSize = Math.min(cellFromWidth, cellFromHeight, 28); // cap at 28px max
+
+  // ADD this new panResponder ref
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderRelease: (_, gestureState) => {
+        if (gameOverRef.current || pausedRef.current) return;
+        const { dx, dy } = gestureState;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (Math.abs(dx) > 15) moveHorizontal(dx > 0 ? 1 : -1);
+        } else {
+          if (dy < -20) rotatePiece();
+          else if (dy > 20) hardDrop();
+        }
+      },
+    })
+  ).current;
 
   const lockPiece = useCallback(() => {
     const b = boardRef.current;
@@ -391,7 +409,7 @@ function GameScreen({ onGameOver, onMenu }) {
 
       {/* Board */}
       {cellSize > 0 && (
-        <View style={[s.board, { width: boardPixelWidth, padding: 2 }]}>
+        <View style={[s.board, { width: boardPixelWidth, padding: 2 }]} {...panResponder.panHandlers}>
           {displayBoard.map((row, r) => (
             <View key={r} style={{ flexDirection: 'row' }}>
               {row.map((cell, c) => (

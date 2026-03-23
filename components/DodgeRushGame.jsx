@@ -34,7 +34,7 @@ function HomeScreen({ onStart, highScore }) {
       <Text style={s.homeSub}>Swipe up & down to dodge obstacles</Text>
 
       <View style={s.lanePreview}>
-        {[0,1,2].map(i => (
+        {[0, 1, 2].map(i => (
           <View key={i} style={s.lanePreviewRow}>
             {i === 1 && <View style={s.previewPlayer} />}
             {i !== 1 && <View style={s.previewObstacle} />}
@@ -155,11 +155,12 @@ function GameScreen({ onGameOver, onMenu }) {
   // Touch Controls
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dy) > 20,
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (evt, gestureState) => {
         if (gameOverRef.current) return;
-        if (gestureState.dy > 30) moveDown();
-        else if (gestureState.dy < -30) moveUp();
+        if (gestureState.dy > 15) moveDown();
+        else if (gestureState.dy < -15) moveUp();
       },
     })
   ).current;
@@ -273,7 +274,7 @@ function GameScreen({ onGameOver, onMenu }) {
       {/* Lane Area */}
       {layout.w > 0 && (
         <View style={[s.laneArea, { top: LANE_AREA_TOP, height: LANE_HEIGHT * LANES }]}>
-          {[0,1,2].map(i => (
+          {[0, 1, 2].map(i => (
             <View key={i} style={[s.lane, { height: LANE_HEIGHT }]}>
               {/* Player */}
               {playerLane === i && (

@@ -74,10 +74,10 @@ function settleBoardOnce(board) {
     // vertical
     for (let c = 0; c < COLS; c++) {
       for (let r = ROWS - 1; r > 0; r--) {
-        if (currentBoard[r][c] !== null && currentBoard[r][c] === currentBoard[r-1][c]) {
+        if (currentBoard[r][c] !== null && currentBoard[r][c] === currentBoard[r - 1][c]) {
           currentBoard[r][c] *= 2;
           scoreGained += currentBoard[r][c];
-          currentBoard[r-1][c] = null;
+          currentBoard[r - 1][c] = null;
           merged = true;
           changed = true;
           break; // do one at a time for predictability
@@ -90,11 +90,11 @@ function settleBoardOnce(board) {
       // horizontal
       for (let r = ROWS - 1; r >= 0; r--) {
         for (let c = 0; c < COLS - 1; c++) {
-          if (currentBoard[r][c] !== null && currentBoard[r][c] === currentBoard[r][c+1]) {
+          if (currentBoard[r][c] !== null && currentBoard[r][c] === currentBoard[r][c + 1]) {
             // merge right block into left block
             currentBoard[r][c] *= 2;
             scoreGained += currentBoard[r][c];
-            currentBoard[r][c+1] = null;
+            currentBoard[r][c + 1] = null;
             merged = true;
             changed = true;
             break;
@@ -148,7 +148,7 @@ function HomeScreen({ onStart, highScore }) {
       <TouchableOpacity style={s.homeBackBtn} onPress={() => router.back()}>
         <Text style={s.homeBackText}>← BACK</Text>
       </TouchableOpacity>
-      
+
       <Text style={s.homeEmoji}>🎯</Text>
       <Text style={s.homeTitle}>NUMBER{'\n'}DROP</Text>
       <Text style={s.homeSub}>Free fall blocks • Merge adjacent numbers</Text>
@@ -156,10 +156,10 @@ function HomeScreen({ onStart, highScore }) {
       <View style={s.previewBoard}>
         {/* Simple static preview of merges */}
         <View style={s.previewRow}>
-           <SettledTile value={2} size={36} />
-           <SettledTile value={2} size={36} />
-           <Text style={{color:'#6B6B8E', fontWeight:'900', marginHorizontal: 8}}>→</Text>
-           <SettledTile value={4} size={36} />
+          <SettledTile value={2} size={36} />
+          <SettledTile value={2} size={36} />
+          <Text style={{ color: '#6B6B8E', fontWeight: '900', marginHorizontal: 8 }}>→</Text>
+          <SettledTile value={4} size={36} />
         </View>
       </View>
 
@@ -228,7 +228,7 @@ function GameScreen({ onGameOver, onMenu }) {
   const [nextVal, setNextVal] = useState(4);
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
-  
+
   const [settling, setSettling] = useState(false); // When true, piece is frozen, board is resolving
   const [maxTile, setMaxTile] = useState(64);
 
@@ -251,19 +251,14 @@ function GameScreen({ onGameOver, onMenu }) {
   // Touch Controls (PanResponder)
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        // Trigger if swiping far enough
-        return Math.abs(gestureState.dx) > 20 || gestureState.dy > 30;
-      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (evt, gestureState) => {
         if (gameOverRef.current || settlingRef.current) return;
-        
-        // Horizontal swipe
-        if (Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 30) {
-          moveHorizontal(gestureState.dx > 0 ? 1 : -1);
-        }
-        // Vertical swipe (Down only)
-        else if (gestureState.dy > 40) {
+        const { dx, dy } = gestureState;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (Math.abs(dx) > 15) moveHorizontal(dx > 0 ? 1 : -1);
+        } else if (dy > 25) {
           hardDrop();
         }
       },
@@ -279,18 +274,18 @@ function GameScreen({ onGameOver, onMenu }) {
   const startSettling = useCallback(() => {
     if (settlingRef.current) return;
     setSettling(true);
-    
+
     // Place piece in board
     const p = pieceRef.current;
     let newBoard = boardRef.current.map(row => [...row]);
-    
+
     // Check game over (if we lock above row 0, or on row 0)
     if (newBoard[p.r][p.c] !== null || p.r < 0) {
       setGameOver(true);
       onGameOver(scoreRef.current, maxTileRef.current);
       return;
     }
-    
+
     newBoard[p.r][p.c] = p.val;
     setBoard(newBoard);
 
@@ -301,32 +296,32 @@ function GameScreen({ onGameOver, onMenu }) {
       if (changed) {
         setBoard(nb);
         setScore(prev => prev + scoreGained);
-        
+
         // update max tile
         const largest = Math.max(...nb.flat().filter(Boolean));
         if (largest > maxTileRef.current) setMaxTile(largest);
       } else {
         // Fully settled!
         clearInterval(resolveTimer);
-        
+
         // Spawn next piece
         const nbCols = nb[0]; // check top row
         if (nbCols.some(c => c !== null)) {
-            // Game Over if top row fills up too much and we can't spawn safely
-            const nx = nextRef.current;
-            if (nb[0][2] !== null) {
-              setGameOver(true);
-              onGameOver(scoreRef.current, Math.max(...nb.flat().filter(Boolean)));
-              return;
-            }
+          // Game Over if top row fills up too much and we can't spawn safely
+          const nx = nextRef.current;
+          if (nb[0][2] !== null) {
+            setGameOver(true);
+            onGameOver(scoreRef.current, Math.max(...nb.flat().filter(Boolean)));
+            return;
+          }
         }
-        
+
         setPiece({ val: nextRef.current, r: 0, c: 2 });
         setNextVal(randomVal(maxTileRef.current));
         setSettling(false);
       }
     };
-    
+
     resolveTimer = setInterval(processStep, 100); // 100ms per gravity/merge step
 
   }, [onGameOver]);
@@ -347,7 +342,7 @@ function GameScreen({ onGameOver, onMenu }) {
     if (gameOverRef.current || settlingRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
-    
+
     if (p.r + 1 < ROWS && b[p.r + 1][p.c] === null) {
       setPiece({ ...p, r: p.r + 1 });
     } else {
@@ -403,10 +398,10 @@ function GameScreen({ onGameOver, onMenu }) {
   // Cell Size math
   const maxBoardHeight = layout.h > 0 ? layout.h - 180 : 0;
   const maxBoardWidth = layout.w > 0 ? layout.w - 32 : 0;
-  
+
   const GAP = 4;
-  const cellW = maxBoardWidth > 0 ? Math.floor((maxBoardWidth - GAP*(COLS+1)) / COLS) : 0;
-  const cellH = maxBoardHeight > 0 ? Math.floor((maxBoardHeight - GAP*(ROWS+1)) / ROWS) : 0;
+  const cellW = maxBoardWidth > 0 ? Math.floor((maxBoardWidth - GAP * (COLS + 1)) / COLS) : 0;
+  const cellH = maxBoardHeight > 0 ? Math.floor((maxBoardHeight - GAP * (ROWS + 1)) / ROWS) : 0;
   const cellSize = Math.min(cellW, cellH, 60); // Cap at 60px
 
   const boardWidth = cellSize * COLS + GAP * (COLS + 1);
@@ -425,7 +420,7 @@ function GameScreen({ onGameOver, onMenu }) {
         <TouchableOpacity style={s.backBtn} onPress={onMenu} activeOpacity={0.7}>
           <Text style={s.backBtnText}>✕</Text>
         </TouchableOpacity>
-        
+
         <View style={s.scoreBox}>
           <Text style={s.scoreNum}>{score}</Text>
           <Text style={s.scoreLabel}>SCORE</Text>
@@ -440,11 +435,11 @@ function GameScreen({ onGameOver, onMenu }) {
 
       {cellSize > 0 && (
         <View style={[s.board, { width: boardWidth, height: boardHeight, padding: GAP }]}>
-          
+
           {/* Background Grid */}
           <View style={StyleSheet.absoluteFill}>
             {Array.from({ length: ROWS }).map((_, r) => (
-              <View key={`bg-r-${r}`} style={{ flexDirection: 'row', gap: GAP, marginTop: r===0?GAP:0, marginLeft: GAP }}>
+              <View key={`bg-r-${r}`} style={{ flexDirection: 'row', gap: GAP, marginTop: r === 0 ? GAP : 0, marginLeft: GAP }}>
                 {Array.from({ length: COLS }).map((_, c) => (
                   <View key={`bg-c-${c}`} style={[s.bgCell, { width: cellSize, height: cellSize }]} />
                 ))}
@@ -455,7 +450,7 @@ function GameScreen({ onGameOver, onMenu }) {
           {/* Placed Tiles */}
           <View style={StyleSheet.absoluteFill}>
             {board.map((row, r) => (
-              <View key={`row-${r}`} style={{ flexDirection: 'row', gap: GAP, marginTop: r===0?GAP:0, marginLeft: GAP }}>
+              <View key={`row-${r}`} style={{ flexDirection: 'row', gap: GAP, marginTop: r === 0 ? GAP : 0, marginLeft: GAP }}>
                 {row.map((val, c) => (
                   <View key={`cell-${r}-${c}`} style={{ width: cellSize, height: cellSize }}>
                     {val !== null && <SettledTile value={val} size={cellSize} />}
@@ -475,10 +470,10 @@ function GameScreen({ onGameOver, onMenu }) {
                 width: cellSize, height: cellSize,
                 backgroundColor: curStyle.bg,
                 borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                shadowColor: '#000', shadowOffset: { width:0, height:2 }, shadowOpacity: 0.3, shadowRadius:4, elevation:4,
+                shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
               }}
             >
-              <Text style={[s.cellTileText, { color: curStyle.text, fontSize: piece.val > 1000 ? cellSize*0.35 : cellSize*0.45 }]}>
+              <Text style={[s.cellTileText, { color: curStyle.text, fontSize: piece.val > 1000 ? cellSize * 0.35 : cellSize * 0.45 }]}>
                 {piece.val}
               </Text>
             </View>
@@ -486,7 +481,7 @@ function GameScreen({ onGameOver, onMenu }) {
 
         </View>
       )}
-      
+
       {/* Controls */}
       <View style={s.controls}>
         <TouchableOpacity style={s.ctrlBtn} onPress={() => moveHorizontal(-1)} activeOpacity={0.6}>
@@ -559,7 +554,7 @@ const s = StyleSheet.create({
     letterSpacing: 4, textAlign: 'center', lineHeight: 48,
   },
   homeSub: { fontSize: 13, color: '#6B6B8E', letterSpacing: 1, textAlign: 'center' },
-  
+
   previewBoard: {
     padding: 12,
     backgroundColor: '#12121e', borderRadius: 14,
@@ -574,7 +569,7 @@ const s = StyleSheet.create({
   },
   hsLabel: { fontSize: 9, color: '#6B6B8E', fontWeight: '700', letterSpacing: 2 },
   hsVal: { fontSize: 22, color: '#2ECC71', fontWeight: '900' },
-  
+
   startBtn: {
     backgroundColor: '#8E44AD', paddingHorizontal: 52, paddingVertical: 16,
     borderRadius: 14, shadowColor: '#8E44AD',
@@ -625,7 +620,7 @@ const s = StyleSheet.create({
   cellTile: {
     borderRadius: 8,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width:0, height:2 }, shadowRadius: 4, elevation: 3,
+    shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 3,
   },
   cellTileText: { fontWeight: '900' },
 
