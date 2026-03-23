@@ -1,16 +1,16 @@
 // TetrisGame.jsx — Tetris for Arcade Vault
-// Classic block-dropping with keyboard + on-screen controls
+// Classic block-dropping with keyboard + tap zone controls
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Platform
+  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Platform, PanResponder
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ROWS = 20;
 const COLS = 10;
-const TICK_MS = 600; // starting speed
+const TICK_MS = 600;
 
 const PIECE_COLORS = {
   I: '#1ABC9C',
@@ -123,7 +123,10 @@ function HomeScreen({ onStart, highScore }) {
         </TouchableOpacity>
       </Animated.View>
 
-      <Text style={s.howText}>Use arrow keys or on-screen controls{'\n'}← → Move  |  ↑ Rotate  |  ↓ Drop</Text>
+      <Text style={s.howText}>
+        Tap left/right sides to move{'\n'}
+        Tap top to rotate • Tap bottom to drop
+      </Text>
     </View>
   );
 }
@@ -139,7 +142,6 @@ function GameOverScreen({ score, lines, level, highScore, onReplay, onMenu }) {
     <Animated.View style={[s.overlay, { transform: [{ scale: scaleAnim }] }]}>
       <Text style={s.overlayEmoji}>💥</Text>
       <Text style={s.overlayTitle}>GAME OVER</Text>
-
       <View style={s.overStatsRow}>
         <View style={s.overStat}>
           <Text style={s.overStatVal}>{score}</Text>
@@ -156,7 +158,6 @@ function GameOverScreen({ score, lines, level, highScore, onReplay, onMenu }) {
           <Text style={s.overStatLabel}>BEST</Text>
         </View>
       </View>
-
       <View style={s.btnRow}>
         <TouchableOpacity style={s.btnSecondary} onPress={onMenu} activeOpacity={0.8}>
           <Text style={s.btnSecondaryText}>↩ EXIT</Text>
@@ -189,6 +190,7 @@ function GameScreen({ onGameOver, onMenu }) {
   const levelRef = useRef(level);
   const gameOverRef = useRef(gameOver);
   const pausedRef = useRef(isPaused);
+  const layoutRef = useRef(layout);
 
   useEffect(() => { boardRef.current = board; }, [board]);
   useEffect(() => { pieceRef.current = piece; }, [piece]);
@@ -198,59 +200,34 @@ function GameScreen({ onGameOver, onMenu }) {
   useEffect(() => { levelRef.current = level; }, [level]);
   useEffect(() => { gameOverRef.current = gameOver; }, [gameOver]);
   useEffect(() => { pausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { layoutRef.current = layout; }, [layout]);
 
-  // Reserve space: header ~44, info row ~40, controls ~56, gaps ~40, padding ~16
   const RESERVED_HEIGHT = 200;
   const maxBoardHeight = layout.height > 0 ? layout.height - RESERVED_HEIGHT : 0;
   const maxBoardWidth = layout.width > 0 ? layout.width - 32 : 0;
-
-  // Cell size must fit both width and height constraints
   const cellFromWidth = maxBoardWidth > 0 ? Math.floor(maxBoardWidth / COLS) : 0;
   const cellFromHeight = maxBoardHeight > 0 ? Math.floor(maxBoardHeight / ROWS) : 0;
-  const cellSize = Math.min(cellFromWidth, cellFromHeight, 28); // cap at 28px max
-
-  // ADD this new panResponder ref
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderRelease: (_, gestureState) => {
-        if (gameOverRef.current || pausedRef.current) return;
-        const { dx, dy } = gestureState;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          if (Math.abs(dx) > 15) moveHorizontal(dx > 0 ? 1 : -1);
-        } else {
-          if (dy < -20) rotatePiece();
-          else if (dy > 20) hardDrop();
-        }
-      },
-    })
-  ).current;
+  const cellSize = Math.min(cellFromWidth, cellFromHeight, 28);
 
   const lockPiece = useCallback(() => {
     const b = boardRef.current;
     const p = pieceRef.current;
     const np = nextRef.current;
-
     const newBoard = placePiece(b, p);
     const { board: clearedBoard, cleared } = clearLines(newBoard);
-
     const lineScores = [0, 100, 300, 500, 800];
     const newLines = linesRef.current + cleared;
     const newLevel = Math.floor(newLines / 10) + 1;
     const newScore = scoreRef.current + (lineScores[cleared] || 0) * levelRef.current;
-
     setBoard(clearedBoard);
     setLines(newLines);
     setLevel(newLevel);
     setScore(newScore);
-
     if (!isValid(clearedBoard, np.shape, np.row, np.col)) {
       setGameOver(true);
       onGameOver(newScore, newLines, newLevel);
       return;
     }
-
     setPiece(np);
     setNextPiece(randomPiece());
   }, [onGameOver]);
@@ -307,7 +284,7 @@ function GameScreen({ onGameOver, onMenu }) {
     return () => clearInterval(interval);
   }, [level, gameOver, moveDown]);
 
-  // Keyboard controls
+  // Keyboard controls (web)
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const handleKey = (e) => {
@@ -322,16 +299,13 @@ function GameScreen({ onGameOver, onMenu }) {
         s: () => moveDown(),
         w: () => rotatePiece(),
       };
-      if (map[e.key]) {
-        e.preventDefault();
-        map[e.key]();
-      }
+      if (map[e.key]) { e.preventDefault(); map[e.key](); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [moveHorizontal, moveDown, rotatePiece, hardDrop]);
 
-  // Render board with current piece overlaid
+  // Render board
   const displayBoard = board.map(r => [...r]);
   if (piece) {
     const { shape, row, col, type } = piece;
@@ -354,6 +328,7 @@ function GameScreen({ onGameOver, onMenu }) {
   }
 
   const boardPixelWidth = cellSize * COLS + 4;
+  const boardPixelHeight = cellSize * ROWS + 4;
 
   return (
     <View
@@ -391,15 +366,11 @@ function GameScreen({ onGameOver, onMenu }) {
             {nextPiece.shape.map((row, r) => (
               <View key={r} style={{ flexDirection: 'row' }}>
                 {row.map((v, c) => (
-                  <View
-                    key={c}
-                    style={{
-                      width: 10,
-                      height: 10,
-                      backgroundColor: v ? PIECE_COLORS[nextPiece.type] : 'transparent',
-                      borderRadius: 2,
-                    }}
-                  />
+                  <View key={c} style={{
+                    width: 10, height: 10,
+                    backgroundColor: v ? PIECE_COLORS[nextPiece.type] : 'transparent',
+                    borderRadius: 2,
+                  }} />
                 ))}
               </View>
             ))}
@@ -407,34 +378,75 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       </View>
 
-      {/* Board */}
+      {/* Game area: board + tap zones side by side */}
       {cellSize > 0 && (
-        <View style={[s.board, { width: boardPixelWidth, padding: 2 }]} {...panResponder.panHandlers}>
-          {displayBoard.map((row, r) => (
-            <View key={r} style={{ flexDirection: 'row' }}>
-              {row.map((cell, c) => (
-                <View
-                  key={c}
-                  style={{
-                    width: cellSize,
-                    height: cellSize,
-                    backgroundColor: cell === 'ghost'
-                      ? 'rgba(255,255,255,0.06)'
-                      : cell
-                        ? PIECE_COLORS[cell]
-                        : 'rgba(255,255,255,0.02)',
-                    borderWidth: cell && cell !== 'ghost' ? 0.5 : 0,
-                    borderColor: 'rgba(0,0,0,0.2)',
-                    borderRadius: 2,
-                  }}
-                />
+        <View style={s.gameArea}>
+          {/* Left tap zone */}
+          <TouchableOpacity
+            style={[s.sideZone, { height: boardPixelHeight }]}
+            onPress={() => moveHorizontal(-1)}
+            activeOpacity={0.3}
+          >
+            <Text style={s.sideZoneText}>◀</Text>
+          </TouchableOpacity>
+
+          {/* Board with top/bottom tap zones */}
+          <View style={{ flexDirection: 'column' }}>
+            {/* Top zone: rotate */}
+            <TouchableOpacity
+              style={[s.topZone, { width: boardPixelWidth }]}
+              onPress={rotatePiece}
+              activeOpacity={0.3}
+            >
+              <Text style={s.zoneHintText}>⟳ rotate</Text>
+            </TouchableOpacity>
+
+            {/* Board */}
+            <View style={[s.board, { width: boardPixelWidth, padding: 2 }]}>
+              {displayBoard.map((row, r) => (
+                <View key={r} style={{ flexDirection: 'row' }}>
+                  {row.map((cell, c) => (
+                    <View
+                      key={c}
+                      style={{
+                        width: cellSize,
+                        height: cellSize,
+                        backgroundColor: cell === 'ghost'
+                          ? 'rgba(255,255,255,0.06)'
+                          : cell ? PIECE_COLORS[cell]
+                            : 'rgba(255,255,255,0.02)',
+                        borderWidth: cell && cell !== 'ghost' ? 0.5 : 0,
+                        borderColor: 'rgba(0,0,0,0.2)',
+                        borderRadius: 2,
+                      }}
+                    />
+                  ))}
+                </View>
               ))}
             </View>
-          ))}
+
+            {/* Bottom zone: hard drop */}
+            <TouchableOpacity
+              style={[s.bottomZone, { width: boardPixelWidth }]}
+              onPress={hardDrop}
+              activeOpacity={0.3}
+            >
+              <Text style={s.zoneHintText}>⏬ drop</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Right tap zone */}
+          <TouchableOpacity
+            style={[s.sideZone, { height: boardPixelHeight }]}
+            onPress={() => moveHorizontal(1)}
+            activeOpacity={0.3}
+          >
+            <Text style={s.sideZoneText}>▶</Text>
+          </TouchableOpacity>
         </View>
       )}
 
-      {/* Controls */}
+      {/* Bottom button row */}
       <View style={s.controls}>
         <TouchableOpacity style={s.ctrlBtn} onPress={() => moveHorizontal(-1)} activeOpacity={0.6}>
           <Text style={s.ctrlText}>◀</Text>
@@ -455,7 +467,6 @@ function GameScreen({ onGameOver, onMenu }) {
     </View>
   );
 }
-
 
 // ─── ROOT ───────────────────────────────────────────────────────────────────
 export default function TetrisGame() {
@@ -484,28 +495,11 @@ export default function TetrisGame() {
 
   if (screen === 'home')
     return <HomeScreen onStart={() => setScreen('game')} highScore={highScore} />;
-
   if (screen === 'game')
-    return (
-      <GameScreen
-        key={`game-${Date.now()}`}
-        onGameOver={handleGameOver}
-        onMenu={() => setScreen('home')}
-      />
-    );
-
+    return <GameScreen key={`game-${Date.now()}`} onGameOver={handleGameOver} onMenu={() => setScreen('home')} />;
   if (screen === 'over')
-    return (
-      <GameOverScreen
-        score={lastScore}
-        lines={lastLines}
-        level={lastLevel}
-        highScore={highScore}
-        onReplay={() => setScreen('game')}
-        onMenu={() => setScreen('home')}
-      />
-    );
-
+    return <GameOverScreen score={lastScore} lines={lastLines} level={lastLevel} highScore={highScore}
+      onReplay={() => setScreen('game')} onMenu={() => setScreen('home')} />;
   return null;
 }
 
@@ -547,9 +541,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8,
   },
   startBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 3 },
-  howText: {
-    color: '#3a3a5a', fontSize: 11, textAlign: 'center', lineHeight: 18,
-  },
+  howText: { color: '#3a3a5a', fontSize: 11, textAlign: 'center', lineHeight: 18 },
 
   // Game
   gameContainer: {
@@ -577,10 +569,7 @@ const s = StyleSheet.create({
   },
   scoreNum: { color: '#F39C12', fontSize: 16, fontWeight: '900' },
   scoreLabel: { color: '#6B6B8E', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
-
-  infoRow: {
-    flexDirection: 'row', gap: 12, paddingHorizontal: 16,
-  },
+  infoRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16 },
   infoItem: {
     alignItems: 'center', backgroundColor: '#12121e',
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10,
@@ -590,11 +579,41 @@ const s = StyleSheet.create({
   infoLabel: { color: '#6B6B8E', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
   nextPieceBox: { marginTop: 4, gap: 1 },
 
+  gameArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 0,
+  },
+  sideZone: {
+    width: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderRadius: 8,
+  },
+  sideZoneText: { color: 'rgba(255,255,255,0.2)', fontSize: 18 },
+  topZone: {
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(41,128,185,0.08)',
+    borderRadius: 6,
+    marginBottom: 2,
+  },
+  bottomZone: {
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(41,128,185,0.08)',
+    borderRadius: 6,
+    marginTop: 2,
+  },
+  zoneHintText: { color: 'rgba(255,255,255,0.18)', fontSize: 10, letterSpacing: 1 },
+
   board: {
     backgroundColor: '#0a0a14', borderRadius: 8,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
-
   controls: {
     flexDirection: 'row', gap: 8, paddingHorizontal: 16,
     flexWrap: 'wrap', justifyContent: 'center',
@@ -607,7 +626,6 @@ const s = StyleSheet.create({
   ctrlBtnWide: { width: 72 },
   ctrlText: { color: '#6B6B8E', fontSize: 18 },
 
-  // Overlays
   overlay: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
     backgroundColor: '#0d0d17', gap: 16, padding: 32,

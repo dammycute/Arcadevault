@@ -1,6 +1,7 @@
 // NumberMergeGame.jsx — 2048 Clone for Arcade Vault
 // Swipe-based tile merging with animated transitions
 
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder, Dimensions, Platform
 } from 'react-native';
@@ -9,7 +10,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width: SW } = Dimensions.get('window');
 const GRID = 4;
-const SWIPE_THRESHOLD = 30;
 
 // ─── TILE COLORS ────────────────────────────────────────────────────────────
 const TILE_COLORS = {
@@ -137,21 +137,11 @@ function Tile({ value, cellSize }) {
   useEffect(() => {
     if (value !== prevValue.current) {
       if (value && value !== prevValue.current && prevValue.current !== 0) {
-        // Merge pop
         scaleAnim.setValue(1.2);
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          friction: 4,
-          useNativeDriver: true,
-        }).start();
+        Animated.spring(scaleAnim, { toValue: 1, friction: 4, useNativeDriver: true }).start();
       } else if (value && prevValue.current === 0) {
-        // New tile
         scaleAnim.setValue(0.3);
-        Animated.spring(scaleAnim, {
-          toValue: 1,
-          friction: 5,
-          useNativeDriver: true,
-        }).start();
+        Animated.spring(scaleAnim, { toValue: 1, friction: 5, useNativeDriver: true }).start();
       }
       prevValue.current = value;
     }
@@ -164,21 +154,12 @@ function Tile({ value, cellSize }) {
   const fontSize = value >= 1024 ? cellSize * 0.25 : value >= 128 ? cellSize * 0.3 : cellSize * 0.38;
 
   return (
-    <Animated.View
-      style={[
-        s.cell,
-        s.cellFilled,
-        {
-          width: cellSize,
-          height: cellSize,
-          backgroundColor: bg,
-          transform: [{ scale: scaleAnim }],
-        },
-      ]}
-    >
-      <Text style={[s.cellText, { color: textColor, fontSize }]}>
-        {value}
-      </Text>
+    <Animated.View style={[s.cell, s.cellFilled, {
+      width: cellSize, height: cellSize,
+      backgroundColor: bg,
+      transform: [{ scale: scaleAnim }],
+    }]}>
+      <Text style={[s.cellText, { color: textColor, fontSize }]}>{value}</Text>
     </Animated.View>
   );
 }
@@ -189,12 +170,10 @@ function HomeScreen({ onStart, highScore }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.05, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
-      ])
-    ).start();
+    Animated.loop(Animated.sequence([
+      Animated.timing(pulseAnim, { toValue: 1.05, duration: 800, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+    ])).start();
   }, []);
 
   return (
@@ -208,26 +187,11 @@ function HomeScreen({ onStart, highScore }) {
         <Text style={s.homeSubtitle}>Slide • Merge • Conquer 2048</Text>
 
         <View style={s.previewGrid}>
-          {[
-            [2, 4, 8, 16],
-            [32, 64, 128, 256],
-            [512, 1024, 2048, 0],
-            [4, 0, 2, 8],
-          ].map((row, r) => (
+          {[[2, 4, 8, 16], [32, 64, 128, 256], [512, 1024, 2048, 0], [4, 0, 2, 8]].map((row, r) => (
             <View key={r} style={s.previewRow}>
               {row.map((val, c) => (
-                <View
-                  key={c}
-                  style={[
-                    s.previewCell,
-                    { backgroundColor: TILE_COLORS[val] || '#6C3483' },
-                  ]}
-                >
-                  {val > 0 && (
-                    <Text style={[s.previewCellText, { fontSize: val >= 128 ? 8 : 10 }]}>
-                      {val}
-                    </Text>
-                  )}
+                <View key={c} style={[s.previewCell, { backgroundColor: TILE_COLORS[val] || '#6C3483' }]}>
+                  {val > 0 && <Text style={[s.previewCellText, { fontSize: val >= 128 ? 8 : 10 }]}>{val}</Text>}
                 </View>
               ))}
             </View>
@@ -259,7 +223,6 @@ function HomeScreen({ onStart, highScore }) {
 // ─── GAME OVER SCREEN ───────────────────────────────────────────────────────
 function GameOverScreen({ score, highScore, won, onReplay, onMenu }) {
   const scaleAnim = useRef(new Animated.Value(0.6)).current;
-
   useEffect(() => {
     Animated.spring(scaleAnim, { toValue: 1, friction: 5, useNativeDriver: true }).start();
   }, []);
@@ -270,7 +233,6 @@ function GameOverScreen({ score, highScore, won, onReplay, onMenu }) {
       <Text style={[s.overlayTitle, !won && { color: '#E74C3C' }]}>
         {won ? 'YOU WIN!' : 'GAME OVER'}
       </Text>
-
       <View style={s.overStats}>
         <View style={s.overStat}>
           <Text style={s.overStatVal}>{score}</Text>
@@ -282,7 +244,6 @@ function GameOverScreen({ score, highScore, won, onReplay, onMenu }) {
           <Text style={s.overStatLabel}>BEST</Text>
         </View>
       </View>
-
       <View style={s.btnRow}>
         <TouchableOpacity style={s.btnSecondary} onPress={onMenu} activeOpacity={0.8}>
           <Text style={s.btnSecondaryText}>↩ EXIT</Text>
@@ -308,11 +269,12 @@ function GameScreen({ onGameOver, onMenu }) {
   const [gameState, setGameState] = useState('playing');
   const [hasAcknowledgedWin, setHasAcknowledgedWin] = useState(false);
 
-  // Use refs so PanResponder + keyboard handler always read latest state
   const gridRef = useRef(grid);
   const scoreRef = useRef(score);
   const gameStateRef = useRef(gameState);
   const hasWonRef = useRef(hasAcknowledgedWin);
+  // Track touch start for swipe detection
+  const touchStartRef = useRef(null);
 
   useEffect(() => { gridRef.current = grid; }, [grid]);
   useEffect(() => { scoreRef.current = score; }, [score]);
@@ -345,14 +307,13 @@ function GameScreen({ onGameOver, onMenu }) {
       setTimeout(() => onGameOver(newScore, true), 400);
       return;
     }
-
     if (!canMove(newGrid)) {
       setGameState('lost');
       setTimeout(() => onGameOver(newScore, false), 400);
     }
   }, [onGameOver]);
 
-  // Keyboard support for web (arrow keys + WASD)
+  // Keyboard support for web
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const handleKeyDown = (e) => {
@@ -362,31 +323,35 @@ function GameScreen({ onGameOver, onMenu }) {
         W: 'up', S: 'down', A: 'left', D: 'right',
       };
       const dir = keyMap[e.key];
-      if (dir) {
-        e.preventDefault();
-        doMove(dir);
-      }
+      if (dir) { e.preventDefault(); doMove(dir); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [doMove]);
 
-  // PanResponder for touch/swipe (reads refs, so no stale closures)
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderRelease: (_, gesture) => {
-        const { dx, dy } = gesture;
-        if (Math.abs(dx) < 15 && Math.abs(dy) < 15) return;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          doMove(dx > 0 ? 'right' : 'left');
-        } else {
-          doMove(dy > 0 ? 'down' : 'up');
-        }
-      },
-    })
-  ).current;
+  // Simple touch handlers — no PanResponder, no dragging
+  const handleTouchStart = useCallback((e) => {
+    const touch = e.nativeEvent.touches[0];
+    touchStartRef.current = { x: touch.pageX, y: touch.pageY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e) => {
+    if (!touchStartRef.current) return;
+    const touch = e.nativeEvent.changedTouches[0];
+    const dx = touch.pageX - touchStartRef.current.x;
+    const dy = touch.pageY - touchStartRef.current.y;
+    touchStartRef.current = null;
+
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    if (absDx < 12 && absDy < 12) return; // too small
+
+    if (absDx > absDy) {
+      doMove(dx > 0 ? 'right' : 'left');
+    } else {
+      doMove(dy > 0 ? 'down' : 'up');
+    }
+  }, [doMove]);
 
   const resetGame = () => {
     let g = createEmpty();
@@ -415,18 +380,13 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       </View>
 
-      {/* Board */}
+      {/* Board — native touch handlers for crisp swipe detection */}
       {cellSize > 0 && (
         <View
-          style={[
-            s.board,
-            {
-              width: boardSize,
-              height: boardSize,
-              padding: BOARD_PAD,
-            },
-          ]}
-          {...panResponder.panHandlers}
+          style={[s.board, { width: boardSize, height: boardSize, padding: BOARD_PAD }]}
+          onStartShouldSetResponder={() => true}
+          onResponderGrant={handleTouchStart}
+          onResponderRelease={handleTouchEnd}
         >
           {grid.map((row, r) => (
             <View key={r} style={[s.boardRow, { gap: GAP }]}>
@@ -438,10 +398,9 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       )}
 
-      {/* Controls hint */}
-      <Text style={s.hint}>Swipe or use arrow keys / WASD</Text>
+      <Text style={s.hint}>Swipe the board to move tiles</Text>
 
-      {/* Direction buttons for touch fallback */}
+      {/* D-pad buttons */}
       <View style={s.dpadContainer}>
         <TouchableOpacity style={s.dpadBtn} onPress={() => doMove('up')} activeOpacity={0.6}>
           <Text style={s.dpadText}>▲</Text>
@@ -460,14 +419,12 @@ function GameScreen({ onGameOver, onMenu }) {
         </TouchableOpacity>
       </View>
 
-      {/* New Game Button */}
       <TouchableOpacity style={s.newGameBtn} onPress={resetGame} activeOpacity={0.7}>
         <Text style={s.newGameBtnText}>↺  NEW GAME</Text>
       </TouchableOpacity>
     </View>
   );
 }
-
 
 // ─── ROOT ───────────────────────────────────────────────────────────────────
 export default function NumberMergeGame() {
@@ -492,376 +449,77 @@ export default function NumberMergeGame() {
     setScreen('over');
   };
 
-  if (screen === 'home')
-    return (
-      <HomeScreen
-        onStart={() => setScreen('game')}
-        highScore={highScore}
-      />
-    );
-
-  if (screen === 'game')
-    return (
-      <GameScreen
-        key={`game-${Date.now()}`}
-        onGameOver={handleGameOver}
-        onMenu={() => setScreen('home')}
-      />
-    );
-
-  if (screen === 'over')
-    return (
-      <GameOverScreen
-        score={lastScore}
-        highScore={highScore}
-        won={lastWon}
-        onReplay={() => setScreen('game')}
-        onMenu={() => setScreen('home')}
-      />
-    );
-
+  if (screen === 'home') return <HomeScreen onStart={() => setScreen('game')} highScore={highScore} />;
+  if (screen === 'game') return <GameScreen key={`game-${Date.now()}`} onGameOver={handleGameOver} onMenu={() => setScreen('home')} />;
+  if (screen === 'over') return <GameOverScreen score={lastScore} highScore={highScore} won={lastWon} onReplay={() => setScreen('game')} onMenu={() => setScreen('home')} />;
   return null;
 }
 
 // ─── STYLES ─────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  // Home
   homeContainer: {
-    flex: 1,
-    backgroundColor: '#0d0d17',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex: 1, backgroundColor: '#0d0d17',
+    justifyContent: 'center', alignItems: 'center',
     paddingTop: Platform.OS === 'android' ? 60 : 0,
   },
   homeBackBtn: {
     position: 'absolute', top: 16, left: 16,
     backgroundColor: '#12121e', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
-    zIndex: 10,
+    borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', zIndex: 10,
   },
   homeBackText: { color: '#6B6B8E', fontSize: 12, fontWeight: '700' },
-  homeContent: {
-    alignItems: 'center',
-    gap: 20,
-    paddingHorizontal: 32,
-    width: '100%',
-  },
-  homeEmoji: {
-    fontSize: 64,
-  },
-  homeTitle: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: 4,
-    textAlign: 'center',
-    lineHeight: 52,
-  },
-  homeSubtitle: {
-    fontSize: 13,
-    color: '#6B6B8E',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  previewGrid: {
-    gap: 3,
-    padding: 10,
-    backgroundColor: '#12121e',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  previewRow: {
-    flexDirection: 'row',
-    gap: 3,
-  },
-  previewCell: {
-    width: 46,
-    height: 46,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewCellText: {
-    color: '#fff',
-    fontWeight: '800',
-  },
-  highScoreContainer: {
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#12121e',
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(243,156,18,0.2)',
-  },
-  highScoreLabel: {
-    fontSize: 9,
-    color: '#6B6B8E',
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
-  highScoreValue: {
-    fontSize: 22,
-    color: '#F39C12',
-    fontWeight: '900',
-  },
-  startBtn: {
-    backgroundColor: '#8E44AD',
-    paddingHorizontal: 56,
-    paddingVertical: 16,
-    borderRadius: 14,
-    shadowColor: '#8E44AD',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  startBtnText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 3,
-  },
-  howToPlay: {
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
-  },
-  howTitle: {
-    color: '#3a3a5a',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
-  howText: {
-    color: '#3a3a5a',
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
-    maxWidth: 260,
-  },
+  homeContent: { alignItems: 'center', gap: 20, paddingHorizontal: 32, width: '100%' },
+  homeEmoji: { fontSize: 64 },
+  homeTitle: { fontSize: 48, fontWeight: '900', color: '#fff', letterSpacing: 4, textAlign: 'center', lineHeight: 52 },
+  homeSubtitle: { fontSize: 13, color: '#6B6B8E', letterSpacing: 2, textTransform: 'uppercase' },
+  previewGrid: { gap: 3, padding: 10, backgroundColor: '#12121e', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  previewRow: { flexDirection: 'row', gap: 3 },
+  previewCell: { width: 46, height: 46, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  previewCellText: { color: '#fff', fontWeight: '800' },
+  highScoreContainer: { alignItems: 'center', gap: 4, backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(243,156,18,0.2)' },
+  highScoreLabel: { fontSize: 9, color: '#6B6B8E', fontWeight: '700', letterSpacing: 2 },
+  highScoreValue: { fontSize: 22, color: '#F39C12', fontWeight: '900' },
+  startBtn: { backgroundColor: '#8E44AD', paddingHorizontal: 56, paddingVertical: 16, borderRadius: 14, shadowColor: '#8E44AD', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8 },
+  startBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 3 },
+  howToPlay: { alignItems: 'center', gap: 6, marginTop: 8 },
+  howTitle: { color: '#3a3a5a', fontSize: 10, fontWeight: '800', letterSpacing: 2 },
+  howText: { color: '#3a3a5a', fontSize: 12, textAlign: 'center', lineHeight: 18, maxWidth: 260 },
 
-  // Game
-  gameContainer: {
-    flex: 1,
-    alignItems: 'center',
-    backgroundColor: '#0d0d17',
-    paddingTop: Platform.OS === 'android' ? 60 : 12,
-    paddingBottom: 16,
-    gap: 14,
-  },
-  gameHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: 16,
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#12121e',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  backBtnText: {
-    color: '#6B6B8E',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  levelText: {
-    flex: 1,
-    textAlign: 'center',
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 3,
-  },
-  scoreBox: {
-    alignItems: 'center',
-    backgroundColor: '#12121e',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    minWidth: 64,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  scoreNum: {
-    color: '#F39C12',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  scoreLabel: {
-    color: '#6B6B8E',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
+  gameContainer: { flex: 1, alignItems: 'center', backgroundColor: '#0d0d17', paddingTop: Platform.OS === 'android' ? 60 : 12, paddingBottom: 16, gap: 14 },
+  gameHeader: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 16 },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  backBtnText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
+  levelText: { flex: 1, textAlign: 'center', color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 3 },
+  scoreBox: { alignItems: 'center', backgroundColor: '#12121e', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6, minWidth: 64, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  scoreNum: { color: '#F39C12', fontSize: 18, fontWeight: '900' },
+  scoreLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
 
-  board: {
-    backgroundColor: '#12121e',
-    borderRadius: 14,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  boardRow: {
-    flexDirection: 'row',
-  },
+  board: { backgroundColor: '#12121e', borderRadius: 14, gap: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  boardRow: { flexDirection: 'row' },
+  cell: { borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.03)', alignItems: 'center', justifyContent: 'center' },
+  cellFilled: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 4 },
+  cellText: { fontWeight: '900', textAlign: 'center' },
 
-  cell: {
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cellFilled: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  cellText: {
-    fontWeight: '900',
-    textAlign: 'center',
-  },
+  hint: { color: '#2a2a48', fontSize: 11, fontWeight: '600', letterSpacing: 0.5 },
+  dpadContainer: { alignItems: 'center', gap: 4 },
+  dpadMiddle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  dpadCenter: { width: 44, height: 44 },
+  dpadBtn: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  dpadText: { color: '#6B6B8E', fontSize: 16 },
+  newGameBtn: { backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  newGameBtnText: { color: '#6B6B8E', fontSize: 13, fontWeight: '700', letterSpacing: 1 },
 
-  hint: {
-    color: '#2a2a48',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-
-  dpadContainer: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  dpadMiddle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  dpadCenter: {
-    width: 44,
-    height: 44,
-  },
-  dpadBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: '#12121e',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  dpadText: {
-    color: '#6B6B8E',
-    fontSize: 16,
-  },
-
-  newGameBtn: {
-    backgroundColor: '#12121e',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  newGameBtnText: {
-    color: '#6B6B8E',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-
-  // Overlays
-  overlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0d0d17',
-    gap: 16,
-    padding: 32,
-    paddingTop: Platform.OS === 'android' ? 60 : 32,
-  },
+  overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0d17', gap: 16, padding: 32, paddingTop: Platform.OS === 'android' ? 60 : 32 },
   overlayEmoji: { fontSize: 64 },
-  overlayTitle: {
-    color: '#fff',
-    fontSize: 32,
-    fontWeight: '900',
-    letterSpacing: 4,
-  },
-  overStats: {
-    flexDirection: 'row',
-    backgroundColor: '#12121e',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-    overflow: 'hidden',
-    width: '100%',
-  },
-  overStat: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 18,
-  },
-  overStatDivider: {
-    width: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  overStatVal: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  overStatLabel: {
-    color: '#6B6B8E',
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginTop: 4,
-  },
-  btnRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  btnPrimary: {
-    backgroundColor: '#8E44AD',
-    paddingHorizontal: 28,
-    paddingVertical: 16,
-    borderRadius: 14,
-    shadowColor: '#8E44AD',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  btnPrimaryText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
-  btnSecondary: {
-    backgroundColor: '#12121e',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  btnSecondaryText: {
-    color: '#6B6B8E',
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  overlayTitle: { color: '#fff', fontSize: 32, fontWeight: '900', letterSpacing: 4 },
+  overStats: { flexDirection: 'row', backgroundColor: '#12121e', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', overflow: 'hidden', width: '100%' },
+  overStat: { flex: 1, alignItems: 'center', paddingVertical: 18 },
+  overStatDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.05)' },
+  overStatVal: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  overStatLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 1, marginTop: 4 },
+  btnRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  btnPrimary: { backgroundColor: '#8E44AD', paddingHorizontal: 28, paddingVertical: 16, borderRadius: 14, shadowColor: '#8E44AD', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6 },
+  btnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 2 },
+  btnSecondary: { backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 16, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  btnSecondaryText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
 });

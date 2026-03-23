@@ -1,15 +1,13 @@
 // NumberDropGame.jsx — Drop The Number Clone for Arcade Vault
-// Blocks with numbers fall from the top. Move left/right. 
-// When they land, they merge with adjacent identical numbers.
+// Plain canvas (no grid), tap left/right zones to move, tap center to drop
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, PanResponder, Platform
+  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Platform
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ─── CONSTANTS & HELPERS ───────────────────────────────────────────────────
 const COLS = 5;
 const ROWS = 8;
 const START_SPEED = 800;
@@ -35,7 +33,6 @@ function getTileStyle(val) {
 }
 
 function randomVal(maxTile) {
-  // Biased towards 2, 4, 8, 16 
   const options = [2, 2, 2, 4, 4, 8, 8, 16, 32, 64];
   const valid = options.filter(v => v <= maxTile || v <= 64);
   return valid[Math.floor(Math.random() * valid.length)];
@@ -45,13 +42,12 @@ function createBoard() {
   return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
 }
 
-// Settles the board rapidly (gravity + merges) returning the final state
 function settleBoardOnce(board) {
   let currentBoard = board.map(row => [...row]);
   let scoreGained = 0;
   let changed = false;
 
-  // 1. Gravity
+  // Gravity
   for (let c = 0; c < COLS; c++) {
     let writeY = ROWS - 1;
     for (let r = ROWS - 1; r >= 0; r--) {
@@ -66,12 +62,9 @@ function settleBoardOnce(board) {
     }
   }
 
-  // If gravity caused a drop, don't merge immediately (let the gravity visually "happen" if we animate, or just combine logic)
-  // Let's do instant chaining for simplicity
   if (!changed) {
-    // 2. Merges (prioritize Downwards, then Left/Right)
     let merged = false;
-    // vertical
+    // vertical merge
     for (let c = 0; c < COLS; c++) {
       for (let r = ROWS - 1; r > 0; r--) {
         if (currentBoard[r][c] !== null && currentBoard[r][c] === currentBoard[r - 1][c]) {
@@ -80,18 +73,17 @@ function settleBoardOnce(board) {
           currentBoard[r - 1][c] = null;
           merged = true;
           changed = true;
-          break; // do one at a time for predictability
+          break;
         }
       }
       if (merged) break;
     }
 
     if (!merged) {
-      // horizontal
+      // horizontal merge
       for (let r = ROWS - 1; r >= 0; r--) {
         for (let c = 0; c < COLS - 1; c++) {
           if (currentBoard[r][c] !== null && currentBoard[r][c] === currentBoard[r][c + 1]) {
-            // merge right block into left block
             currentBoard[r][c] *= 2;
             scoreGained += currentBoard[r][c];
             currentBoard[r][c + 1] = null;
@@ -111,20 +103,17 @@ function settleBoardOnce(board) {
 // ─── TILE COMPONENT ─────────────────────────────────────────────────────────
 function SettledTile({ value, size }) {
   const scale = useRef(new Animated.Value(0.8)).current;
-
   useEffect(() => {
-    Animated.spring(scale, {
-      toValue: 1, friction: 3, tension: 80, useNativeDriver: true,
-    }).start();
+    Animated.spring(scale, { toValue: 1, friction: 3, tension: 80, useNativeDriver: true }).start();
   }, [value]);
 
   const style = getTileStyle(value);
   return (
     <Animated.View style={[
-      s.cellTile,
-      { width: size, height: size, backgroundColor: style.bg, transform: [{ scale }] }
+      st.cellTile,
+      { width: size - 4, height: size - 4, backgroundColor: style.bg, transform: [{ scale }] }
     ]}>
-      <Text style={[s.cellTileText, { color: style.text, fontSize: value > 1000 ? size * 0.35 : size * 0.45 }]}>
+      <Text style={[st.cellTileText, { color: style.text, fontSize: value > 1000 ? (size - 4) * 0.35 : (size - 4) * 0.45 }]}>
         {value}
       </Text>
     </Animated.View>
@@ -135,7 +124,6 @@ function SettledTile({ value, size }) {
 function HomeScreen({ onStart, highScore }) {
   const router = useRouter();
   const pulseAnim = useRef(new Animated.Value(1)).current;
-
   useEffect(() => {
     Animated.loop(Animated.sequence([
       Animated.timing(pulseAnim, { toValue: 1.05, duration: 800, useNativeDriver: true }),
@@ -144,39 +132,40 @@ function HomeScreen({ onStart, highScore }) {
   }, []);
 
   return (
-    <View style={s.homeContainer}>
-      <TouchableOpacity style={s.homeBackBtn} onPress={() => router.back()}>
-        <Text style={s.homeBackText}>← BACK</Text>
+    <View style={st.homeContainer}>
+      <TouchableOpacity style={st.homeBackBtn} onPress={() => router.back()}>
+        <Text style={st.homeBackText}>← BACK</Text>
       </TouchableOpacity>
+      <Text style={st.homeEmoji}>🎯</Text>
+      <Text style={st.homeTitle}>NUMBER{'\n'}DROP</Text>
+      <Text style={st.homeSub}>Drop blocks • Merge identical numbers</Text>
 
-      <Text style={s.homeEmoji}>🎯</Text>
-      <Text style={s.homeTitle}>NUMBER{'\n'}DROP</Text>
-      <Text style={s.homeSub}>Free fall blocks • Merge adjacent numbers</Text>
-
-      <View style={s.previewBoard}>
-        {/* Simple static preview of merges */}
-        <View style={s.previewRow}>
-          <SettledTile value={2} size={36} />
-          <SettledTile value={2} size={36} />
-          <Text style={{ color: '#6B6B8E', fontWeight: '900', marginHorizontal: 8 }}>→</Text>
-          <SettledTile value={4} size={36} />
+      <View style={st.previewBoard}>
+        <View style={st.previewRow}>
+          <SettledTile value={2} size={44} />
+          <SettledTile value={2} size={44} />
+          <Text style={{ color: '#6B6B8E', fontWeight: '900', marginHorizontal: 8, alignSelf: 'center' }}>→</Text>
+          <SettledTile value={4} size={44} />
         </View>
       </View>
 
       {highScore > 0 && (
-        <View style={s.hsBox}>
-          <Text style={s.hsLabel}>TOP SCORE</Text>
-          <Text style={s.hsVal}>{highScore}</Text>
+        <View style={st.hsBox}>
+          <Text style={st.hsLabel}>TOP SCORE</Text>
+          <Text style={st.hsVal}>{highScore}</Text>
         </View>
       )}
 
       <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-        <TouchableOpacity style={s.startBtn} onPress={onStart} activeOpacity={0.8}>
-          <Text style={s.startBtnText}>START MATCHING</Text>
+        <TouchableOpacity style={st.startBtn} onPress={onStart} activeOpacity={0.8}>
+          <Text style={st.startBtnText}>START</Text>
         </TouchableOpacity>
       </Animated.View>
 
-      <Text style={s.howText}>Move horizontally to place the block.{'\n'}Touching identical neighbor numbers will merge them!</Text>
+      <Text style={st.howText}>
+        Tap LEFT / RIGHT sides to move{'\n'}
+        Tap CENTER to drop instantly
+      </Text>
     </View>
   );
 }
@@ -189,38 +178,38 @@ function GameOverScreen({ score, maxTile, highScore, onReplay, onMenu }) {
   }, []);
 
   return (
-    <Animated.View style={[s.overlay, { transform: [{ scale: scaleAnim }] }]}>
-      <Text style={s.overlayEmoji}>🧱</Text>
-      <Text style={s.overlayTitle}>BOARD FULL!</Text>
-      <View style={s.overStats}>
-        <View style={s.overStat}>
-          <Text style={s.overStatVal}>{score}</Text>
-          <Text style={s.overStatLabel}>SCORE</Text>
+    <Animated.View style={[st.overlay, { transform: [{ scale: scaleAnim }] }]}>
+      <Text style={st.overlayEmoji}>🧱</Text>
+      <Text style={st.overlayTitle}>BOARD FULL!</Text>
+      <View style={st.overStats}>
+        <View style={st.overStat}>
+          <Text style={st.overStatVal}>{score}</Text>
+          <Text style={st.overStatLabel}>SCORE</Text>
         </View>
-        <View style={s.overStatDiv} />
-        <View style={s.overStat}>
-          <Text style={s.overStatVal}>{maxTile}</Text>
-          <Text style={s.overStatLabel}>BEST TILE</Text>
+        <View style={st.overStatDiv} />
+        <View style={st.overStat}>
+          <Text style={st.overStatVal}>{maxTile}</Text>
+          <Text style={st.overStatLabel}>BEST TILE</Text>
         </View>
-        <View style={s.overStatDiv} />
-        <View style={s.overStat}>
-          <Text style={[s.overStatVal, { color: '#F39C12' }]}>{highScore}</Text>
-          <Text style={s.overStatLabel}>HIGH SCORE</Text>
+        <View style={st.overStatDiv} />
+        <View style={st.overStat}>
+          <Text style={[st.overStatVal, { color: '#F39C12' }]}>{highScore}</Text>
+          <Text style={st.overStatLabel}>HIGH SCORE</Text>
         </View>
       </View>
-      <View style={s.btnRow}>
-        <TouchableOpacity style={s.btnSecondary} onPress={onMenu} activeOpacity={0.8}>
-          <Text style={s.btnSecondaryText}>↩ MENU</Text>
+      <View style={st.btnRow}>
+        <TouchableOpacity style={st.btnSecondary} onPress={onMenu} activeOpacity={0.8}>
+          <Text style={st.btnSecondaryText}>↩ MENU</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.btnPrimary} onPress={onReplay} activeOpacity={0.8}>
-          <Text style={s.btnPrimaryText}>↺ RETRY</Text>
+        <TouchableOpacity style={st.btnPrimary} onPress={onReplay} activeOpacity={0.8}>
+          <Text style={st.btnPrimaryText}>↺ RETRY</Text>
         </TouchableOpacity>
       </View>
     </Animated.View>
   );
 }
 
-// ─── GAME ───────────────────────────────────────────────────────────────────
+// ─── GAME SCREEN ────────────────────────────────────────────────────────────
 function GameScreen({ onGameOver, onMenu }) {
   const [layout, setLayout] = useState({ w: 0, h: 0 });
   const [board, setBoard] = useState(createBoard);
@@ -228,8 +217,7 @@ function GameScreen({ onGameOver, onMenu }) {
   const [nextVal, setNextVal] = useState(4);
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
-
-  const [settling, setSettling] = useState(false); // When true, piece is frozen, board is resolving
+  const [settling, setSettling] = useState(false);
   const [maxTile, setMaxTile] = useState(64);
 
   const boardRef = useRef(board);
@@ -248,24 +236,6 @@ function GameScreen({ onGameOver, onMenu }) {
   useEffect(() => { settlingRef.current = settling; }, [settling]);
   useEffect(() => { gameOverRef.current = gameOver; }, [gameOver]);
 
-  // Touch Controls (PanResponder)
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderRelease: (evt, gestureState) => {
-        if (gameOverRef.current || settlingRef.current) return;
-        const { dx, dy } = gestureState;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          if (Math.abs(dx) > 15) moveHorizontal(dx > 0 ? 1 : -1);
-        } else if (dy > 25) {
-          hardDrop();
-        }
-      },
-    })
-  ).current;
-
-  // INITIAL LOAD
   useEffect(() => {
     setNextVal(randomVal(16));
     setPiece({ val: randomVal(16), r: 0, c: 2 });
@@ -275,11 +245,9 @@ function GameScreen({ onGameOver, onMenu }) {
     if (settlingRef.current) return;
     setSettling(true);
 
-    // Place piece in board
     const p = pieceRef.current;
     let newBoard = boardRef.current.map(row => [...row]);
 
-    // Check game over (if we lock above row 0, or on row 0)
     if (newBoard[p.r][p.c] !== null || p.r < 0) {
       setGameOver(true);
       onGameOver(scoreRef.current, maxTileRef.current);
@@ -289,41 +257,27 @@ function GameScreen({ onGameOver, onMenu }) {
     newBoard[p.r][p.c] = p.val;
     setBoard(newBoard);
 
-    // Resolution loop (handled by interval to safely animate state)
     let resolveTimer;
     const processStep = () => {
       const { newBoard: nb, scoreGained, changed } = settleBoardOnce(boardRef.current);
       if (changed) {
         setBoard(nb);
         setScore(prev => prev + scoreGained);
-
-        // update max tile
         const largest = Math.max(...nb.flat().filter(Boolean));
         if (largest > maxTileRef.current) setMaxTile(largest);
       } else {
-        // Fully settled!
         clearInterval(resolveTimer);
-
-        // Spawn next piece
-        const nbCols = nb[0]; // check top row
-        if (nbCols.some(c => c !== null)) {
-          // Game Over if top row fills up too much and we can't spawn safely
-          const nx = nextRef.current;
-          if (nb[0][2] !== null) {
-            setGameOver(true);
-            onGameOver(scoreRef.current, Math.max(...nb.flat().filter(Boolean)));
-            return;
-          }
+        if (nb[0][2] !== null) {
+          setGameOver(true);
+          onGameOver(scoreRef.current, Math.max(...nb.flat().filter(Boolean)));
+          return;
         }
-
         setPiece({ val: nextRef.current, r: 0, c: 2 });
         setNextVal(randomVal(maxTileRef.current));
         setSettling(false);
       }
     };
-
-    resolveTimer = setInterval(processStep, 100); // 100ms per gravity/merge step
-
+    resolveTimer = setInterval(processStep, 100);
   }, [onGameOver]);
 
   const moveHorizontal = useCallback((dir) => {
@@ -331,10 +285,8 @@ function GameScreen({ onGameOver, onMenu }) {
     const p = pieceRef.current;
     const b = boardRef.current;
     const newC = p.c + dir;
-    if (newC >= 0 && newC < COLS) {
-      if (b[p.r][newC] === null) {
-        setPiece({ ...p, c: newC });
-      }
+    if (newC >= 0 && newC < COLS && b[p.r][newC] === null) {
+      setPiece({ ...p, c: newC });
     }
   }, []);
 
@@ -342,7 +294,6 @@ function GameScreen({ onGameOver, onMenu }) {
     if (gameOverRef.current || settlingRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
-
     if (p.r + 1 < ROWS && b[p.r + 1][p.c] === null) {
       setPiece({ ...p, r: p.r + 1 });
     } else {
@@ -355,24 +306,20 @@ function GameScreen({ onGameOver, onMenu }) {
     const p = pieceRef.current;
     const b = boardRef.current;
     let dropR = p.r;
-    while (dropR + 1 < ROWS && b[dropR + 1][p.c] === null) {
-      dropR++;
-    }
+    while (dropR + 1 < ROWS && b[dropR + 1][p.c] === null) dropR++;
     setPiece({ ...p, r: dropR });
-    // setTimeout to allow render before lock
     setTimeout(() => startSettling(), 50);
   }, [startSettling]);
 
   // Gravity
   useEffect(() => {
     if (gameOver || settling) return;
-    // Speed up based on max tile
     const speed = Math.max(300, START_SPEED - Math.floor(score / 500) * 50);
     const interval = setInterval(moveDown, speed);
     return () => clearInterval(interval);
   }, [maxTile, score, gameOver, settling, moveDown]);
 
-  // Keyboard controls
+  // Keyboard
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const handleKey = (e) => {
@@ -381,120 +328,155 @@ function GameScreen({ onGameOver, onMenu }) {
         ArrowRight: () => moveHorizontal(1),
         ArrowDown: () => moveDown(),
         ' ': () => hardDrop(),
-        w: () => hardDrop(),
         a: () => moveHorizontal(-1),
         d: () => moveHorizontal(1),
         s: () => moveDown(),
+        w: () => hardDrop(),
       };
-      if (map[e.key]) {
-        e.preventDefault();
-        map[e.key]();
-      }
+      if (map[e.key]) { e.preventDefault(); map[e.key](); }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [moveHorizontal, moveDown, hardDrop]);
 
-  // Cell Size math
+  // Cell size math
   const maxBoardHeight = layout.h > 0 ? layout.h - 180 : 0;
   const maxBoardWidth = layout.w > 0 ? layout.w - 32 : 0;
-
-  const GAP = 4;
-  const cellW = maxBoardWidth > 0 ? Math.floor((maxBoardWidth - GAP * (COLS + 1)) / COLS) : 0;
-  const cellH = maxBoardHeight > 0 ? Math.floor((maxBoardHeight - GAP * (ROWS + 1)) / ROWS) : 0;
-  const cellSize = Math.min(cellW, cellH, 60); // Cap at 60px
-
-  const boardWidth = cellSize * COLS + GAP * (COLS + 1);
-  const boardHeight = cellSize * ROWS + GAP * (ROWS + 1);
+  const GAP = 3;
+  const cellW = maxBoardWidth > 0 ? Math.floor((maxBoardWidth - GAP * (COLS - 1)) / COLS) : 0;
+  const cellH = maxBoardHeight > 0 ? Math.floor((maxBoardHeight - GAP * (ROWS - 1)) / ROWS) : 0;
+  const cellSize = Math.min(cellW, cellH, 60);
+  const boardWidth = cellSize * COLS + GAP * (COLS - 1);
+  const boardHeight = cellSize * ROWS + GAP * (ROWS - 1);
 
   const curStyle = getTileStyle(piece.val);
   const nextStyle = getTileStyle(nextVal);
 
   return (
-    <View style={s.gameContainer} {...panResponder.panHandlers} onLayout={(e) => {
-      const { width: w, height: h } = e.nativeEvent.layout;
-      setLayout({ w, h });
-    }}>
+    <View
+      style={st.gameContainer}
+      onLayout={(e) => {
+        const { width: w, height: h } = e.nativeEvent.layout;
+        setLayout({ w, h });
+      }}
+    >
       {/* Header */}
-      <View style={s.gameHeader}>
-        <TouchableOpacity style={s.backBtn} onPress={onMenu} activeOpacity={0.7}>
-          <Text style={s.backBtnText}>✕</Text>
+      <View style={st.gameHeader}>
+        <TouchableOpacity style={st.backBtn} onPress={onMenu} activeOpacity={0.7}>
+          <Text style={st.backBtnText}>✕</Text>
         </TouchableOpacity>
-
-        <View style={s.scoreBox}>
-          <Text style={s.scoreNum}>{score}</Text>
-          <Text style={s.scoreLabel}>SCORE</Text>
+        <View style={st.scoreBox}>
+          <Text style={st.scoreNum}>{score}</Text>
+          <Text style={st.scoreLabel}>SCORE</Text>
         </View>
-        <View style={s.nextBox}>
-          <Text style={s.nextLabel}>NEXT</Text>
-          <View style={[s.nextTile, { backgroundColor: nextStyle.bg }]}>
-            <Text style={[s.nextTileText, { color: nextStyle.text }]}>{nextVal}</Text>
+        <View style={st.nextBox}>
+          <Text style={st.nextLabel}>NEXT</Text>
+          <View style={[st.nextTile, { backgroundColor: nextStyle.bg }]}>
+            <Text style={[st.nextTileText, { color: nextStyle.text }]}>{nextVal}</Text>
           </View>
         </View>
       </View>
 
+      {/* Board area with tap zones */}
       {cellSize > 0 && (
-        <View style={[s.board, { width: boardWidth, height: boardHeight, padding: GAP }]}>
+        <View style={st.boardArea}>
+          {/* Left tap zone */}
+          <TouchableOpacity
+            style={[st.sideZone, { height: boardHeight }]}
+            onPress={() => moveHorizontal(-1)}
+            activeOpacity={0.25}
+          >
+            <Text style={st.sideZoneIcon}>◀</Text>
+          </TouchableOpacity>
 
-          {/* Background Grid */}
-          <View style={StyleSheet.absoluteFill}>
-            {Array.from({ length: ROWS }).map((_, r) => (
-              <View key={`bg-r-${r}`} style={{ flexDirection: 'row', gap: GAP, marginTop: r === 0 ? GAP : 0, marginLeft: GAP }}>
-                {Array.from({ length: COLS }).map((_, c) => (
-                  <View key={`bg-c-${c}`} style={[s.bgCell, { width: cellSize, height: cellSize }]} />
-                ))}
-              </View>
-            ))}
-          </View>
-
-          {/* Placed Tiles */}
-          <View style={StyleSheet.absoluteFill}>
-            {board.map((row, r) => (
-              <View key={`row-${r}`} style={{ flexDirection: 'row', gap: GAP, marginTop: r === 0 ? GAP : 0, marginLeft: GAP }}>
-                {row.map((val, c) => (
-                  <View key={`cell-${r}-${c}`} style={{ width: cellSize, height: cellSize }}>
-                    {val !== null && <SettledTile value={val} size={cellSize} />}
+          {/* Board — plain canvas, no grid lines */}
+          <View style={[st.board, { width: boardWidth, height: boardHeight }]}>
+            {/* Placed tiles */}
+            {board.map((row, r) =>
+              row.map((val, c) =>
+                val !== null ? (
+                  <View
+                    key={`${r}-${c}`}
+                    style={{
+                      position: 'absolute',
+                      top: r * (cellSize + GAP),
+                      left: c * (cellSize + GAP),
+                      width: cellSize,
+                      height: cellSize,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <SettledTile value={val} size={cellSize} />
                   </View>
-                ))}
-              </View>
-            ))}
-          </View>
+                ) : null
+              )
+            )}
 
-          {/* Falling Piece */}
-          {!settling && (
-            <View
-              style={{
+            {/* Ghost piece (landing preview) */}
+            {!settling && (() => {
+              const b = boardRef.current;
+              const p = piece;
+              let ghostR = p.r;
+              while (ghostR + 1 < ROWS && b[ghostR + 1][p.c] === null) ghostR++;
+              if (ghostR !== p.r) {
+                return (
+                  <View style={{
+                    position: 'absolute',
+                    top: ghostR * (cellSize + GAP),
+                    left: p.c * (cellSize + GAP),
+                    width: cellSize, height: cellSize,
+                    borderRadius: 8,
+                    backgroundColor: curStyle.bg,
+                    opacity: 0.2,
+                  }} />
+                );
+              }
+              return null;
+            })()}
+
+            {/* Falling piece */}
+            {!settling && (
+              <View style={{
                 position: 'absolute',
-                top: piece.r * (cellSize + GAP) + GAP,
-                left: piece.c * (cellSize + GAP) + GAP,
+                top: piece.r * (cellSize + GAP),
+                left: piece.c * (cellSize + GAP),
                 width: cellSize, height: cellSize,
                 backgroundColor: curStyle.bg,
-                borderRadius: 8, alignItems: 'center', justifyContent: 'center',
-                shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
-              }}
-            >
-              <Text style={[s.cellTileText, { color: curStyle.text, fontSize: piece.val > 1000 ? cellSize * 0.35 : cellSize * 0.45 }]}>
-                {piece.val}
-              </Text>
-            </View>
-          )}
+                borderRadius: 8,
+                alignItems: 'center', justifyContent: 'center',
+                shadowColor: curStyle.bg,
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 0.6, shadowRadius: 8, elevation: 6,
+              }}>
+                <Text style={[st.cellTileText, { color: curStyle.text, fontSize: piece.val > 1000 ? cellSize * 0.35 : cellSize * 0.45 }]}>
+                  {piece.val}
+                </Text>
+              </View>
+            )}
+          </View>
 
+          {/* Right tap zone */}
+          <TouchableOpacity
+            style={[st.sideZone, { height: boardHeight }]}
+            onPress={() => moveHorizontal(1)}
+            activeOpacity={0.25}
+          >
+            <Text style={st.sideZoneIcon}>▶</Text>
+          </TouchableOpacity>
         </View>
       )}
 
-      {/* Controls */}
-      <View style={s.controls}>
-        <TouchableOpacity style={s.ctrlBtn} onPress={() => moveHorizontal(-1)} activeOpacity={0.6}>
-          <Text style={s.ctrlText}>◀</Text>
+      {/* Bottom controls */}
+      <View style={st.controls}>
+        <TouchableOpacity style={st.ctrlBtn} onPress={() => moveHorizontal(-1)} activeOpacity={0.6}>
+          <Text style={st.ctrlText}>◀</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.ctrlBtn} onPress={moveDown} activeOpacity={0.6}>
-          <Text style={s.ctrlText}>▼</Text>
+        <TouchableOpacity style={[st.ctrlBtn, st.ctrlBtnCenter]} onPress={hardDrop} activeOpacity={0.6}>
+          <Text style={[st.ctrlText, { color: '#8E44AD' }]}>⏬ DROP</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={s.ctrlBtn} onPress={() => moveHorizontal(1)} activeOpacity={0.6}>
-          <Text style={s.ctrlText}>▶</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[s.ctrlBtn, s.ctrlBtnWide]} onPress={hardDrop} activeOpacity={0.6}>
-          <Text style={s.ctrlText}>⏬</Text>
+        <TouchableOpacity style={st.ctrlBtn} onPress={() => moveHorizontal(1)} activeOpacity={0.6}>
+          <Text style={st.ctrlText}>▶</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -524,145 +506,98 @@ export default function NumberDropGame() {
     setScreen('over');
   };
 
-  if (screen === 'home')
-    return <HomeScreen onStart={() => setScreen('game')} highScore={highScore} />;
-  if (screen === 'game')
-    return <GameScreen key={Date.now()} onGameOver={handleGameOver} onMenu={() => setScreen('home')} />;
-  if (screen === 'over')
-    return <GameOverScreen score={lastScore} maxTile={lastMax} highScore={highScore}
-      onReplay={() => setScreen('game')} onMenu={() => setScreen('home')} />;
+  if (screen === 'home') return <HomeScreen onStart={() => setScreen('game')} highScore={highScore} />;
+  if (screen === 'game') return <GameScreen key={Date.now()} onGameOver={handleGameOver} onMenu={() => setScreen('home')} />;
+  if (screen === 'over') return <GameOverScreen score={lastScore} maxTile={lastMax} highScore={highScore}
+    onReplay={() => setScreen('game')} onMenu={() => setScreen('home')} />;
   return null;
 }
 
 // ─── STYLES ─────────────────────────────────────────────────────────────────
-const s = StyleSheet.create({
+const st = StyleSheet.create({
   homeContainer: {
     flex: 1, backgroundColor: '#0d0d17',
-    alignItems: 'center', justifyContent: 'center', gap: 18, padding: 32,
+    alignItems: 'center', justifyContent: 'center', gap: 20, padding: 32,
     paddingTop: Platform.OS === 'android' ? 64 : 32,
   },
   homeBackBtn: {
     position: 'absolute', top: 16, left: 16,
     backgroundColor: '#12121e', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
-    zIndex: 10,
+    borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', zIndex: 10,
   },
   homeBackText: { color: '#6B6B8E', fontSize: 12, fontWeight: '700' },
   homeEmoji: { fontSize: 56 },
-  homeTitle: {
-    fontSize: 44, fontWeight: '900', color: '#fff',
-    letterSpacing: 4, textAlign: 'center', lineHeight: 48,
-  },
+  homeTitle: { fontSize: 44, fontWeight: '900', color: '#fff', letterSpacing: 4, textAlign: 'center', lineHeight: 48 },
   homeSub: { fontSize: 13, color: '#6B6B8E', letterSpacing: 1, textAlign: 'center' },
-
-  previewBoard: {
-    padding: 12,
-    backgroundColor: '#12121e', borderRadius: 14,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-  },
+  previewBoard: { padding: 12, backgroundColor: '#12121e', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   previewRow: { flexDirection: 'row', alignItems: 'center' },
-
-  hsBox: {
-    alignItems: 'center', backgroundColor: '#12121e',
-    paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(46,204,113,0.2)',
-  },
+  hsBox: { alignItems: 'center', backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(46,204,113,0.2)' },
   hsLabel: { fontSize: 9, color: '#6B6B8E', fontWeight: '700', letterSpacing: 2 },
   hsVal: { fontSize: 22, color: '#2ECC71', fontWeight: '900' },
+  startBtn: { backgroundColor: '#8E44AD', paddingHorizontal: 52, paddingVertical: 16, borderRadius: 14, shadowColor: '#8E44AD', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8 },
+  startBtnText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 4 },
+  howText: { color: '#3a3a5a', fontSize: 12, textAlign: 'center', lineHeight: 20 },
 
-  startBtn: {
-    backgroundColor: '#8E44AD', paddingHorizontal: 52, paddingVertical: 16,
-    borderRadius: 14, shadowColor: '#8E44AD',
-    shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8,
-  },
-  startBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 3 },
-  howText: { color: '#3a3a5a', fontSize: 12, textAlign: 'center', lineHeight: 18 },
-
-  // Game
-  gameContainer: {
-    flex: 1, backgroundColor: '#050510', alignItems: 'center',
-    paddingTop: Platform.OS === 'android' ? 60 : 8,
-  },
-  gameHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    width: '100%', paddingHorizontal: 16, gap: 12, marginBottom: 12,
-  },
-  backBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-  },
+  gameContainer: { flex: 1, backgroundColor: '#050510', alignItems: 'center', paddingTop: Platform.OS === 'android' ? 60 : 8 },
+  gameHeader: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 16, gap: 12, marginBottom: 8 },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   backBtnText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
-  scoreBox: {
-    flex: 1, alignItems: 'center', backgroundColor: '#12121e',
-    borderRadius: 10, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-  },
+  scoreBox: { flex: 1, alignItems: 'center', backgroundColor: '#12121e', borderRadius: 10, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   scoreNum: { color: '#fff', fontSize: 20, fontWeight: '900' },
   scoreLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 2 },
-  nextBox: {
-    alignItems: 'center', gap: 4, width: 44,
-  },
+  nextBox: { alignItems: 'center', gap: 4, width: 44 },
   nextLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
-  nextTile: {
-    width: 32, height: 32, borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  nextTile: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   nextTileText: { fontSize: 12, fontWeight: '900' },
 
+  boardArea: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sideZone: {
+    width: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderRadius: 8,
+  },
+  sideZoneIcon: { color: 'rgba(255,255,255,0.15)', fontSize: 18 },
+
+  // Plain canvas board — no background cells, no grid lines
   board: {
-    backgroundColor: '#0a0a14', borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#0a0a14',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
   },
-  bgCell: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 8,
-  },
-  cellTile: {
-    borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 3,
-  },
+
+  cellTile: { borderRadius: 8, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 3 },
   cellTileText: { fontWeight: '900' },
 
   controls: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginTop: 24,
+    flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginTop: 16,
     justifyContent: 'center',
   },
   ctrlBtn: {
-    width: 52, height: 48, borderRadius: 12,
+    width: 60, height: 52, borderRadius: 14,
     backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
   },
-  ctrlBtnWide: { width: 72 },
+  ctrlBtnCenter: { width: 120, backgroundColor: 'rgba(142,68,173,0.15)', borderColor: 'rgba(142,68,173,0.3)' },
   ctrlText: { color: '#6B6B8E', fontSize: 18 },
 
-  // Overlay
-  overlay: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#0d0d17', gap: 16, padding: 32,
-    paddingTop: Platform.OS === 'android' ? 60 : 32,
-  },
+  overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0d17', gap: 16, padding: 32, paddingTop: Platform.OS === 'android' ? 60 : 32 },
   overlayEmoji: { fontSize: 64 },
   overlayTitle: { color: '#E74C3C', fontSize: 32, fontWeight: '900', letterSpacing: 4 },
-  overStats: {
-    flexDirection: 'row', backgroundColor: '#12121e',
-    borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-    overflow: 'hidden', width: '100%',
-  },
+  overStats: { flexDirection: 'row', backgroundColor: '#12121e', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', overflow: 'hidden', width: '100%' },
   overStat: { flex: 1, alignItems: 'center', paddingVertical: 16 },
   overStatDiv: { width: 1, backgroundColor: 'rgba(255,255,255,0.05)' },
   overStatVal: { color: '#fff', fontSize: 20, fontWeight: '900' },
   overStatLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 1, marginTop: 4 },
   btnRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  btnPrimary: {
-    backgroundColor: '#8E44AD', paddingHorizontal: 28, paddingVertical: 16,
-    borderRadius: 14, shadowColor: '#8E44AD',
-    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6,
-  },
+  btnPrimary: { backgroundColor: '#8E44AD', paddingHorizontal: 28, paddingVertical: 16, borderRadius: 14, shadowColor: '#8E44AD', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6 },
   btnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 2 },
-  btnSecondary: {
-    backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 16,
-    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-  },
+  btnSecondary: { backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 16, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   btnSecondaryText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
 });
