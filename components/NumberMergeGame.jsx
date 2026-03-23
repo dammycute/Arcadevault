@@ -1,9 +1,9 @@
 // NumberMergeGame.jsx — 2048 Clone for Arcade Vault
-// Swipe-based tile merging with animated transitions
+// Swipe directly on the board to move tiles — no side buttons
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, PanResponder, Dimensions, Platform
+  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Platform
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -213,7 +213,7 @@ function HomeScreen({ onStart, highScore }) {
 
         <View style={s.howToPlay}>
           <Text style={s.howTitle}>HOW TO PLAY</Text>
-          <Text style={s.howText}>Swipe to slide tiles. Matching numbers merge into a higher value. Reach 2048 to win!</Text>
+          <Text style={s.howText}>Swipe the board in any direction to slide tiles. Matching numbers merge into a higher value. Reach 2048 to win!</Text>
         </View>
       </View>
     </View>
@@ -273,7 +273,6 @@ function GameScreen({ onGameOver, onMenu }) {
   const scoreRef = useRef(score);
   const gameStateRef = useRef(gameState);
   const hasWonRef = useRef(hasAcknowledgedWin);
-  // Track touch start for swipe detection
   const touchStartRef = useRef(null);
 
   useEffect(() => { gridRef.current = grid; }, [grid]);
@@ -329,7 +328,7 @@ function GameScreen({ onGameOver, onMenu }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [doMove]);
 
-  // Simple touch handlers — no PanResponder, no dragging
+  // Touch handlers directly on board
   const handleTouchStart = useCallback((e) => {
     const touch = e.nativeEvent.touches[0];
     touchStartRef.current = { x: touch.pageX, y: touch.pageY };
@@ -344,7 +343,7 @@ function GameScreen({ onGameOver, onMenu }) {
 
     const absDx = Math.abs(dx);
     const absDy = Math.abs(dy);
-    if (absDx < 12 && absDy < 12) return; // too small
+    if (absDx < 12 && absDy < 12) return;
 
     if (absDx > absDy) {
       doMove(dx > 0 ? 'right' : 'left');
@@ -380,7 +379,7 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       </View>
 
-      {/* Board — native touch handlers for crisp swipe detection */}
+      {/* Board — swipe directly on it */}
       {cellSize > 0 && (
         <View
           style={[s.board, { width: boardSize, height: boardSize, padding: BOARD_PAD }]}
@@ -398,26 +397,7 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       )}
 
-      <Text style={s.hint}>Swipe the board to move tiles</Text>
-
-      {/* D-pad buttons */}
-      <View style={s.dpadContainer}>
-        <TouchableOpacity style={s.dpadBtn} onPress={() => doMove('up')} activeOpacity={0.6}>
-          <Text style={s.dpadText}>▲</Text>
-        </TouchableOpacity>
-        <View style={s.dpadMiddle}>
-          <TouchableOpacity style={s.dpadBtn} onPress={() => doMove('left')} activeOpacity={0.6}>
-            <Text style={s.dpadText}>◀</Text>
-          </TouchableOpacity>
-          <View style={s.dpadCenter} />
-          <TouchableOpacity style={s.dpadBtn} onPress={() => doMove('right')} activeOpacity={0.6}>
-            <Text style={s.dpadText}>▶</Text>
-          </TouchableOpacity>
-        </View>
-        <TouchableOpacity style={s.dpadBtn} onPress={() => doMove('down')} activeOpacity={0.6}>
-          <Text style={s.dpadText}>▼</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={s.hint}>Swipe anywhere on the board to move tiles</Text>
 
       <TouchableOpacity style={s.newGameBtn} onPress={resetGame} activeOpacity={0.7}>
         <Text style={s.newGameBtnText}>↺  NEW GAME</Text>
@@ -485,7 +465,7 @@ const s = StyleSheet.create({
   howTitle: { color: '#3a3a5a', fontSize: 10, fontWeight: '800', letterSpacing: 2 },
   howText: { color: '#3a3a5a', fontSize: 12, textAlign: 'center', lineHeight: 18, maxWidth: 260 },
 
-  gameContainer: { flex: 1, alignItems: 'center', backgroundColor: '#0d0d17', paddingTop: Platform.OS === 'android' ? 60 : 12, paddingBottom: 16, gap: 14 },
+  gameContainer: { flex: 1, alignItems: 'center', backgroundColor: '#0d0d17', paddingTop: Platform.OS === 'android' ? 60 : 12, paddingBottom: 16, gap: 20 },
   gameHeader: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 16 },
   backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   backBtnText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
@@ -500,12 +480,7 @@ const s = StyleSheet.create({
   cellFilled: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 4 },
   cellText: { fontWeight: '900', textAlign: 'center' },
 
-  hint: { color: '#2a2a48', fontSize: 11, fontWeight: '600', letterSpacing: 0.5 },
-  dpadContainer: { alignItems: 'center', gap: 4 },
-  dpadMiddle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  dpadCenter: { width: 44, height: 44 },
-  dpadBtn: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  dpadText: { color: '#6B6B8E', fontSize: 16 },
+  hint: { color: '#2a2a48', fontSize: 12, fontWeight: '600', letterSpacing: 0.5, textAlign: 'center' },
   newGameBtn: { backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   newGameBtnText: { color: '#6B6B8E', fontSize: 13, fontWeight: '700', letterSpacing: 1 },
 

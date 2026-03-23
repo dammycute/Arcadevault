@@ -1,9 +1,9 @@
 // NumberDropGame.jsx — Drop The Number Clone for Arcade Vault
-// Plain canvas (no grid), tap left/right zones to move, tap center to drop
+// Touch controls: swipe left/right on the board to move, tap to hard drop
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Platform
+  View, Text, TouchableOpacity, StyleSheet, Animated, Platform
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -162,10 +162,13 @@ function HomeScreen({ onStart, highScore }) {
         </TouchableOpacity>
       </Animated.View>
 
-      <Text style={st.howText}>
-        Tap LEFT / RIGHT sides to move{'\n'}
-        Tap CENTER to drop instantly
-      </Text>
+      <View style={st.howBox}>
+        <Text style={st.howTitle}>CONTROLS</Text>
+        <Text style={st.howText}>
+          {'Swipe left/right to move the block\n'}
+          {'Tap the board to hard drop instantly'}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -227,6 +230,7 @@ function GameScreen({ onGameOver, onMenu }) {
   const maxTileRef = useRef(maxTile);
   const settlingRef = useRef(settling);
   const gameOverRef = useRef(gameOver);
+  const touchStartRef = useRef(null);
 
   useEffect(() => { boardRef.current = board; }, [board]);
   useEffect(() => { pieceRef.current = piece; }, [piece]);
@@ -339,8 +343,38 @@ function GameScreen({ onGameOver, onMenu }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [moveHorizontal, moveDown, hardDrop]);
 
+  // Touch handlers directly on board
+  const handleTouchStart = useCallback((e) => {
+    const touch = e.nativeEvent.touches[0];
+    touchStartRef.current = { x: touch.pageX, y: touch.pageY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e) => {
+    if (!touchStartRef.current) return;
+    const touch = e.nativeEvent.changedTouches[0];
+    const dx = touch.pageX - touchStartRef.current.x;
+    const dy = touch.pageY - touchStartRef.current.y;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    touchStartRef.current = null;
+
+    // Tap = hard drop
+    if (absDx < 10 && absDy < 10) {
+      hardDrop();
+      return;
+    }
+
+    // Horizontal swipe = move
+    if (absDx > absDy) {
+      moveHorizontal(dx > 0 ? 1 : -1);
+    } else if (dy > 0) {
+      // Swipe down = hard drop
+      hardDrop();
+    }
+  }, [moveHorizontal, hardDrop]);
+
   // Cell size math
-  const maxBoardHeight = layout.h > 0 ? layout.h - 180 : 0;
+  const maxBoardHeight = layout.h > 0 ? layout.h - 160 : 0;
   const maxBoardWidth = layout.w > 0 ? layout.w - 32 : 0;
   const GAP = 3;
   const cellW = maxBoardWidth > 0 ? Math.floor((maxBoardWidth - GAP * (COLS - 1)) / COLS) : 0;
@@ -377,108 +411,81 @@ function GameScreen({ onGameOver, onMenu }) {
         </View>
       </View>
 
-      {/* Board area with tap zones */}
+      {/* Board — touch directly on it */}
       {cellSize > 0 && (
-        <View style={st.boardArea}>
-          {/* Left tap zone */}
-          <TouchableOpacity
-            style={[st.sideZone, { height: boardHeight }]}
-            onPress={() => moveHorizontal(-1)}
-            activeOpacity={0.25}
-          >
-            <Text style={st.sideZoneIcon}>◀</Text>
-          </TouchableOpacity>
-
-          {/* Board — plain canvas, no grid lines */}
-          <View style={[st.board, { width: boardWidth, height: boardHeight }]}>
-            {/* Placed tiles */}
-            {board.map((row, r) =>
-              row.map((val, c) =>
-                val !== null ? (
-                  <View
-                    key={`${r}-${c}`}
-                    style={{
-                      position: 'absolute',
-                      top: r * (cellSize + GAP),
-                      left: c * (cellSize + GAP),
-                      width: cellSize,
-                      height: cellSize,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <SettledTile value={val} size={cellSize} />
-                  </View>
-                ) : null
-              )
-            )}
-
-            {/* Ghost piece (landing preview) */}
-            {!settling && (() => {
-              const b = boardRef.current;
-              const p = piece;
-              let ghostR = p.r;
-              while (ghostR + 1 < ROWS && b[ghostR + 1][p.c] === null) ghostR++;
-              if (ghostR !== p.r) {
-                return (
-                  <View style={{
+        <View
+          style={[st.board, { width: boardWidth, height: boardHeight }]}
+          onStartShouldSetResponder={() => true}
+          onResponderGrant={handleTouchStart}
+          onResponderRelease={handleTouchEnd}
+        >
+          {/* Placed tiles */}
+          {board.map((row, r) =>
+            row.map((val, c) =>
+              val !== null ? (
+                <View
+                  key={`${r}-${c}`}
+                  style={{
                     position: 'absolute',
-                    top: ghostR * (cellSize + GAP),
-                    left: p.c * (cellSize + GAP),
-                    width: cellSize, height: cellSize,
-                    borderRadius: 8,
-                    backgroundColor: curStyle.bg,
-                    opacity: 0.2,
-                  }} />
-                );
-              }
-              return null;
-            })()}
+                    top: r * (cellSize + GAP),
+                    left: c * (cellSize + GAP),
+                    width: cellSize,
+                    height: cellSize,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <SettledTile value={val} size={cellSize} />
+                </View>
+              ) : null
+            )
+          )}
 
-            {/* Falling piece */}
-            {!settling && (
-              <View style={{
-                position: 'absolute',
-                top: piece.r * (cellSize + GAP),
-                left: piece.c * (cellSize + GAP),
-                width: cellSize, height: cellSize,
-                backgroundColor: curStyle.bg,
-                borderRadius: 8,
-                alignItems: 'center', justifyContent: 'center',
-                shadowColor: curStyle.bg,
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.6, shadowRadius: 8, elevation: 6,
-              }}>
-                <Text style={[st.cellTileText, { color: curStyle.text, fontSize: piece.val > 1000 ? cellSize * 0.35 : cellSize * 0.45 }]}>
-                  {piece.val}
-                </Text>
-              </View>
-            )}
-          </View>
+          {/* Ghost piece */}
+          {!settling && (() => {
+            const b = boardRef.current;
+            const p = piece;
+            let ghostR = p.r;
+            while (ghostR + 1 < ROWS && b[ghostR + 1][p.c] === null) ghostR++;
+            if (ghostR !== p.r) {
+              return (
+                <View style={{
+                  position: 'absolute',
+                  top: ghostR * (cellSize + GAP),
+                  left: p.c * (cellSize + GAP),
+                  width: cellSize, height: cellSize,
+                  borderRadius: 8,
+                  backgroundColor: curStyle.bg,
+                  opacity: 0.2,
+                }} />
+              );
+            }
+            return null;
+          })()}
 
-          {/* Right tap zone */}
-          <TouchableOpacity
-            style={[st.sideZone, { height: boardHeight }]}
-            onPress={() => moveHorizontal(1)}
-            activeOpacity={0.25}
-          >
-            <Text style={st.sideZoneIcon}>▶</Text>
-          </TouchableOpacity>
+          {/* Falling piece */}
+          {!settling && (
+            <View style={{
+              position: 'absolute',
+              top: piece.r * (cellSize + GAP),
+              left: piece.c * (cellSize + GAP),
+              width: cellSize, height: cellSize,
+              backgroundColor: curStyle.bg,
+              borderRadius: 8,
+              alignItems: 'center', justifyContent: 'center',
+              shadowColor: curStyle.bg,
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.6, shadowRadius: 8, elevation: 6,
+            }}>
+              <Text style={[st.cellTileText, { color: curStyle.text, fontSize: piece.val > 1000 ? cellSize * 0.35 : cellSize * 0.45 }]}>
+                {piece.val}
+              </Text>
+            </View>
+          )}
         </View>
       )}
 
-      {/* Bottom controls */}
-      <View style={st.controls}>
-        <TouchableOpacity style={st.ctrlBtn} onPress={() => moveHorizontal(-1)} activeOpacity={0.6}>
-          <Text style={st.ctrlText}>◀</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[st.ctrlBtn, st.ctrlBtnCenter]} onPress={hardDrop} activeOpacity={0.6}>
-          <Text style={[st.ctrlText, { color: '#8E44AD' }]}>⏬ DROP</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={st.ctrlBtn} onPress={() => moveHorizontal(1)} activeOpacity={0.6}>
-          <Text style={st.ctrlText}>▶</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={st.hint}>Swipe ←→ to move  •  Tap or swipe ↓ to drop</Text>
     </View>
   );
 }
@@ -536,7 +543,12 @@ const st = StyleSheet.create({
   hsVal: { fontSize: 22, color: '#2ECC71', fontWeight: '900' },
   startBtn: { backgroundColor: '#8E44AD', paddingHorizontal: 52, paddingVertical: 16, borderRadius: 14, shadowColor: '#8E44AD', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8 },
   startBtnText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 4 },
-  howText: { color: '#3a3a5a', fontSize: 12, textAlign: 'center', lineHeight: 20 },
+  howBox: {
+    backgroundColor: 'rgba(142,68,173,0.08)', padding: 16, borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(142,68,173,0.2)', alignItems: 'center', gap: 8,
+  },
+  howTitle: { color: '#8E44AD', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  howText: { color: '#6B6B8E', fontSize: 12, textAlign: 'center', lineHeight: 20 },
 
   gameContainer: { flex: 1, backgroundColor: '#050510', alignItems: 'center', paddingTop: Platform.OS === 'android' ? 60 : 8 },
   gameHeader: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 16, gap: 12, marginBottom: 8 },
@@ -550,20 +562,6 @@ const st = StyleSheet.create({
   nextTile: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   nextTileText: { fontSize: 12, fontWeight: '900' },
 
-  boardArea: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  sideZone: {
-    width: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderRadius: 8,
-  },
-  sideZoneIcon: { color: 'rgba(255,255,255,0.15)', fontSize: 18 },
-
-  // Plain canvas board — no background cells, no grid lines
   board: {
     backgroundColor: '#0a0a14',
     borderRadius: 12,
@@ -575,17 +573,10 @@ const st = StyleSheet.create({
   cellTile: { borderRadius: 8, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 3 },
   cellTileText: { fontWeight: '900' },
 
-  controls: {
-    flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginTop: 16,
-    justifyContent: 'center',
+  hint: {
+    color: '#2a2a48', fontSize: 11, textAlign: 'center',
+    paddingHorizontal: 16, marginTop: 12,
   },
-  ctrlBtn: {
-    width: 60, height: 52, borderRadius: 14,
-    backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-  },
-  ctrlBtnCenter: { width: 120, backgroundColor: 'rgba(142,68,173,0.15)', borderColor: 'rgba(142,68,173,0.3)' },
-  ctrlText: { color: '#6B6B8E', fontSize: 18 },
 
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0d17', gap: 16, padding: 32, paddingTop: Platform.OS === 'android' ? 60 : 32 },
   overlayEmoji: { fontSize: 64 },

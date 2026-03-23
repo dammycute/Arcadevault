@@ -1,9 +1,9 @@
 // DodgeRushGame.jsx — Lane-based obstacle dodger for Arcade Vault
-// Tap left half / right half of screen to switch lanes
+// Touch directly on the game area: tap left half = move up, tap right half = move down
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Platform
+  View, Text, TouchableOpacity, StyleSheet, Animated, Platform
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -30,7 +30,7 @@ function HomeScreen({ onStart, highScore }) {
       </TouchableOpacity>
       <Text style={s.homeEmoji}>🏃</Text>
       <Text style={s.homeTitle}>DODGE{'\n'}RUSH</Text>
-      <Text style={s.homeSub}>Tap left or right to dodge obstacles</Text>
+      <Text style={s.homeSub}>Tap to dodge obstacles</Text>
 
       <View style={s.lanePreview}>
         {[0, 1, 2].map(i => (
@@ -54,7 +54,13 @@ function HomeScreen({ onStart, highScore }) {
         </TouchableOpacity>
       </Animated.View>
 
-      <Text style={s.howText}>Tap LEFT half to go up • Tap RIGHT half to go down</Text>
+      <View style={s.howBox}>
+        <Text style={s.howTitle}>CONTROLS</Text>
+        <Text style={s.howText}>
+          {'Tap the LEFT side of the screen to move up\n'}
+          {'Tap the RIGHT side to move down'}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -126,8 +132,8 @@ function GameScreen({ onGameOver, onMenu }) {
   useEffect(() => { maxComboRef.current = maxCombo; }, [maxCombo]);
   useEffect(() => { speedRef.current = speed; }, [speed]);
 
-  const LANE_HEIGHT = layout.h > 0 ? Math.min((layout.h - 160) / LANES, 90) : 80;
-  const LANE_AREA_TOP = layout.h > 0 ? (layout.h - LANE_HEIGHT * LANES) / 2 - 30 : 100;
+  const LANE_HEIGHT = layout.h > 0 ? Math.min((layout.h - 80) / LANES, 100) : 80;
+  const LANE_AREA_TOP = layout.h > 0 ? (layout.h - LANE_HEIGHT * LANES) / 2 - 10 : 100;
 
   const moveUp = useCallback(() => {
     if (gameOverRef.current) return;
@@ -223,6 +229,18 @@ function GameScreen({ onGameOver, onMenu }) {
     return () => cancelAnimationFrame(animId);
   }, [layout.w, gameOver, onGameOver]);
 
+  // Handle tap on the game area — left half = up, right half = down
+  const handleGameAreaPress = useCallback((e) => {
+    if (gameOver) return;
+    const touchX = e.nativeEvent.locationX;
+    const halfWidth = layout.w / 2;
+    if (touchX < halfWidth) {
+      moveUp();
+    } else {
+      moveDown();
+    }
+  }, [gameOver, layout.w, moveUp, moveDown]);
+
   return (
     <View
       style={s.gameContainer}
@@ -247,63 +265,41 @@ function GameScreen({ onGameOver, onMenu }) {
         )}
       </View>
 
-      {/* Lane area */}
+      {/* Full-screen game area with touch handling */}
       {layout.w > 0 && (
-        <View style={[s.laneArea, { top: LANE_AREA_TOP, height: LANE_HEIGHT * LANES }]}>
-          {[0, 1, 2].map(i => (
-            <View key={i} style={[s.lane, { height: LANE_HEIGHT }]}>
-              {playerLane === i && (
-                <View style={[s.player, { left: 50 }]}>
-                  <View style={s.playerDiamond} />
-                  <View style={s.playerTrail} />
-                </View>
-              )}
-            </View>
-          ))}
-          {obstacles.map(o => (
-            <View key={o.id} style={[s.obstacle, {
-              left: o.x,
-              top: o.lane * LANE_HEIGHT + (LANE_HEIGHT - 40) / 2,
-              width: o.width, height: 40,
-            }]} />
-          ))}
-        </View>
-      )}
+        <TouchableOpacity
+          style={s.gameArea}
+          onPress={handleGameAreaPress}
+          activeOpacity={1}
+        >
+          {/* Lane dividers */}
+          <View style={[s.laneArea, { top: LANE_AREA_TOP, height: LANE_HEIGHT * LANES }]}>
+            {[0, 1, 2].map(i => (
+              <View key={i} style={[s.lane, { height: LANE_HEIGHT }]}>
+                {playerLane === i && (
+                  <View style={[s.player, { left: 50 }]}>
+                    <View style={s.playerDiamond} />
+                    <View style={s.playerTrail} />
+                  </View>
+                )}
+              </View>
+            ))}
+            {obstacles.map(o => (
+              <View key={o.id} style={[s.obstacle, {
+                left: o.x,
+                top: o.lane * LANE_HEIGHT + (LANE_HEIGHT - 40) / 2,
+                width: o.width, height: 40,
+              }]} />
+            ))}
+          </View>
 
-      {/* Full-screen tap zones — left = up, right = down */}
-      {!gameOver && layout.w > 0 && (
-        <View style={[s.tapOverlay, { top: LANE_AREA_TOP - 20, height: LANE_HEIGHT * LANES + 40 }]}>
-          <TouchableOpacity
-            style={s.tapLeft}
-            onPress={moveUp}
-            activeOpacity={0.15}
-          >
-            <Text style={s.tapHint}>▲{'\n'}UP</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.tapRight}
-            onPress={moveDown}
-            activeOpacity={0.15}
-          >
-            <Text style={s.tapHint}>▼{'\n'}DOWN</Text>
-          </TouchableOpacity>
-        </View>
+          {/* Hint overlays */}
+          <View style={s.hintOverlay} pointerEvents="none">
+            <Text style={s.hintLeft}>◀ UP</Text>
+            <Text style={s.hintRight}>DOWN ▶</Text>
+          </View>
+        </TouchableOpacity>
       )}
-
-      {/* Button controls at bottom */}
-      <View style={s.controls}>
-        <TouchableOpacity style={s.ctrlBtn} onPress={moveUp} activeOpacity={0.6}>
-          <Text style={s.ctrlText}>▲</Text>
-          <Text style={s.ctrlLabel}>UP</Text>
-        </TouchableOpacity>
-        <View style={s.ctrlCenter}>
-          <Text style={s.ctrlCenterIcon}>🕹️</Text>
-        </View>
-        <TouchableOpacity style={s.ctrlBtn} onPress={moveDown} activeOpacity={0.6}>
-          <Text style={s.ctrlText}>▼</Text>
-          <Text style={s.ctrlLabel}>DOWN</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -363,7 +359,12 @@ const s = StyleSheet.create({
   hsVal: { fontSize: 22, color: '#F39C12', fontWeight: '900' },
   startBtn: { backgroundColor: '#E67E22', paddingHorizontal: 52, paddingVertical: 16, borderRadius: 14, shadowColor: '#E67E22', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8 },
   startBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 3 },
-  howText: { color: '#3a3a5a', fontSize: 11, textAlign: 'center', lineHeight: 18 },
+  howBox: {
+    backgroundColor: 'rgba(230,126,34,0.08)', padding: 16, borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(230,126,34,0.2)', alignItems: 'center', gap: 8,
+  },
+  howTitle: { color: '#E67E22', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  howText: { color: '#6B6B8E', fontSize: 12, textAlign: 'center', lineHeight: 20 },
 
   gameContainer: { flex: 1, backgroundColor: '#050510', paddingTop: Platform.OS === 'android' ? 60 : 12 },
   gameHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, gap: 12 },
@@ -375,6 +376,9 @@ const s = StyleSheet.create({
   comboBox: { backgroundColor: 'rgba(241,196,15,0.1)', borderWidth: 1, borderColor: 'rgba(241,196,15,0.4)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   comboText: { color: '#F1C40F', fontSize: 16, fontWeight: '900', letterSpacing: -1 },
 
+  // Full-screen tappable game area
+  gameArea: { flex: 1, position: 'relative' },
+
   laneArea: { position: 'absolute', left: 0, right: 0 },
   lane: { borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.05)', backgroundColor: 'rgba(255,255,255,0.015)', justifyContent: 'center' },
   player: { position: 'absolute', flexDirection: 'row', alignItems: 'center' },
@@ -382,39 +386,12 @@ const s = StyleSheet.create({
   playerTrail: { width: 50, height: 6, marginLeft: -30, backgroundColor: 'rgba(92,184,253,0.3)', borderRadius: 99 },
   obstacle: { position: 'absolute', backgroundColor: '#ff716c', borderRadius: 8, shadowColor: '#ff716c', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 12, elevation: 4 },
 
-  // Full-width transparent tap zones
-  tapOverlay: {
-    position: 'absolute',
-    left: 0, right: 0,
-    flexDirection: 'row',
-    zIndex: 10,
+  hintOverlay: {
+    position: 'absolute', bottom: 24, left: 0, right: 0,
+    flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 24,
   },
-  tapLeft: {
-    flex: 1,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: 12,
-  },
-  tapRight: {
-    flex: 1,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    paddingRight: 12,
-  },
-  tapHint: {
-    color: 'rgba(255,255,255,0.08)',
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-    letterSpacing: 1,
-  },
-
-  controls: { position: 'absolute', bottom: 24, left: 24, right: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(26,26,38,0.7)', borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  ctrlBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 16 },
-  ctrlText: { color: '#e7e3f3', fontSize: 24 },
-  ctrlLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 2 },
-  ctrlCenter: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(92,184,253,0.3)', marginTop: -16, shadowColor: '#5cb8fd', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 15, elevation: 4 },
-  ctrlCenterIcon: { fontSize: 24 },
+  hintLeft: { color: 'rgba(255,255,255,0.08)', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  hintRight: { color: 'rgba(255,255,255,0.08)', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
 
   overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0d17', gap: 16, padding: 32, paddingTop: Platform.OS === 'android' ? 60 : 32 },
   overlayEmoji: { fontSize: 64 },
