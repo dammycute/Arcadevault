@@ -12,7 +12,6 @@ export default function RootLayout() {
           <Stack.Screen name="number_merge" />
           <Stack.Screen name="tic_tac_toe" />
           <Stack.Screen name="tetris" />
-          <Stack.Screen name="dodge_rush" />
           <Stack.Screen name="number_drop" />
         </Stack>
       </View>

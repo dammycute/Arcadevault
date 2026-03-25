@@ -1,4 +1,5 @@
 // TetrisGame.jsx — Tetris for Arcade Vault
+// FIXED: Game over only triggers when new piece truly cannot spawn (checked AFTER line clears)
 // Touch controls: swipe left/right to move, swipe up to rotate, swipe down to hard drop, tap to rotate
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -82,7 +83,12 @@ function clearLines(board) {
   return { board: [...emptyRows, ...newBoard], cleared };
 }
 
-// ─── HOME SCREEN ────────────────────────────────────────────────────────────
+// Check if a new piece can be spawned — used for true game-over detection
+function canSpawnPiece(board, piece) {
+  return isValid(board, piece.shape, piece.row, piece.col);
+}
+
+// ─── HOME SCREEN ─────────────────────────────────────────────────────────────
 function HomeScreen({ onStart, highScore }) {
   const router = useRouter();
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -135,7 +141,7 @@ function HomeScreen({ onStart, highScore }) {
   );
 }
 
-// ─── GAME OVER SCREEN ───────────────────────────────────────────────────────
+// ─── GAME OVER SCREEN ─────────────────────────────────────────────────────────
 function GameOverScreen({ score, lines, level, highScore, onReplay, onMenu }) {
   const scaleAnim = useRef(new Animated.Value(0.6)).current;
   useEffect(() => {
@@ -147,20 +153,11 @@ function GameOverScreen({ score, lines, level, highScore, onReplay, onMenu }) {
       <Text style={s.overlayEmoji}>💥</Text>
       <Text style={s.overlayTitle}>GAME OVER</Text>
       <View style={s.overStatsRow}>
-        <View style={s.overStat}>
-          <Text style={s.overStatVal}>{score}</Text>
-          <Text style={s.overStatLabel}>SCORE</Text>
-        </View>
+        <View style={s.overStat}><Text style={s.overStatVal}>{score}</Text><Text style={s.overStatLabel}>SCORE</Text></View>
         <View style={s.overStatDiv} />
-        <View style={s.overStat}>
-          <Text style={s.overStatVal}>{lines}</Text>
-          <Text style={s.overStatLabel}>LINES</Text>
-        </View>
+        <View style={s.overStat}><Text style={s.overStatVal}>{lines}</Text><Text style={s.overStatLabel}>LINES</Text></View>
         <View style={s.overStatDiv} />
-        <View style={s.overStat}>
-          <Text style={[s.overStatVal, { color: '#F39C12' }]}>{highScore}</Text>
-          <Text style={s.overStatLabel}>BEST</Text>
-        </View>
+        <View style={s.overStat}><Text style={[s.overStatVal, { color: '#F39C12' }]}>{highScore}</Text><Text style={s.overStatLabel}>BEST</Text></View>
       </View>
       <View style={s.btnRow}>
         <TouchableOpacity style={s.btnSecondary} onPress={onMenu} activeOpacity={0.8}>
@@ -174,134 +171,125 @@ function GameOverScreen({ score, lines, level, highScore, onReplay, onMenu }) {
   );
 }
 
-// ─── GAME SCREEN ────────────────────────────────────────────────────────────
+// ─── GAME SCREEN ──────────────────────────────────────────────────────────────
 function GameScreen({ onGameOver, onMenu }) {
   const [layout, setLayout] = useState({ width: 0, height: 0 });
-
-  // ── Core game state kept ONLY in refs to avoid stale closures ──
-  const boardRef = useRef(createBoard());
-  const pieceRef = useRef(randomPiece());
-  const nextPieceRef = useRef(randomPiece());
-  const scoreRef = useRef(0);
-  const linesRef = useRef(0);
-  const levelRef = useRef(1);
-  const gameOverRef = useRef(false);
-  const lockingRef = useRef(false); // prevent double-lock
-
-  // Derived display state (only for rendering)
-  const [displayBoard, setDisplayBoard] = useState(() => boardRef.current);
-  const [displayPiece, setDisplayPiece] = useState(() => pieceRef.current);
-  const [displayNext, setDisplayNext] = useState(() => nextPieceRef.current);
+  const [board, setBoard] = useState(createBoard);
+  const [piece, setPiece] = useState(() => randomPiece());
+  const [nextPiece, setNextPiece] = useState(() => randomPiece());
   const [score, setScore] = useState(0);
   const [lines, setLines] = useState(0);
   const [level, setLevel] = useState(1);
   const [gameOver, setGameOver] = useState(false);
 
+  const boardRef = useRef(board);
+  const pieceRef = useRef(piece);
+  const nextRef = useRef(nextPiece);
+  const scoreRef = useRef(score);
+  const linesRef = useRef(lines);
+  const levelRef = useRef(level);
+  const gameOverRef = useRef(gameOver);
   const touchStartRef = useRef(null);
+  // Guard against double-lock races
+  const lockingRef = useRef(false);
 
-  const syncDisplay = useCallback(() => {
-    setDisplayBoard([...boardRef.current]);
-    setDisplayPiece({ ...pieceRef.current });
-    setDisplayNext({ ...nextPieceRef.current });
-    setScore(scoreRef.current);
-    setLines(linesRef.current);
-    setLevel(levelRef.current);
-  }, []);
+  useEffect(() => { boardRef.current = board; }, [board]);
+  useEffect(() => { pieceRef.current = piece; }, [piece]);
+  useEffect(() => { nextRef.current = nextPiece; }, [nextPiece]);
+  useEffect(() => { scoreRef.current = score; }, [score]);
+  useEffect(() => { linesRef.current = lines; }, [lines]);
+  useEffect(() => { levelRef.current = level; }, [level]);
+  useEffect(() => { gameOverRef.current = gameOver; }, [gameOver]);
 
-  // ── Lock piece — fully ref-driven, no stale closures ──
+  const RESERVED_HEIGHT = 130;
+  const maxBoardHeight = layout.height > 0 ? layout.height - RESERVED_HEIGHT : 0;
+  const maxBoardWidth = layout.width > 0 ? layout.width - 32 : 0;
+  const cellFromWidth = maxBoardWidth > 0 ? Math.floor(maxBoardWidth / COLS) : 0;
+  const cellFromHeight = maxBoardHeight > 0 ? Math.floor(maxBoardHeight / ROWS) : 0;
+  const cellSize = Math.min(cellFromWidth, cellFromHeight, 28);
+
   const lockPiece = useCallback(() => {
     if (gameOverRef.current || lockingRef.current) return;
     lockingRef.current = true;
 
-    const currentPiece = pieceRef.current;
-    const currentBoard = boardRef.current;
+    const b = boardRef.current;
+    const p = pieceRef.current;
+    const np = nextRef.current;
 
-    // Place the piece
-    const newBoard = placePiece(currentBoard, currentPiece);
+    // Place piece onto board
+    const boardWithPiece = placePiece(b, p);
 
-    // Clear lines
-    const { board: clearedBoard, cleared } = clearLines(newBoard);
+    // Clear completed lines
+    const { board: clearedBoard, cleared } = clearLines(boardWithPiece);
     const lineScores = [0, 100, 300, 500, 800];
     const newLines = linesRef.current + cleared;
     const newLevel = Math.floor(newLines / 10) + 1;
-    const newScore = scoreRef.current + (lineScores[cleared] || 0) * levelRef.current;
+    const newScore = scoreRef.current + (lineScores[Math.min(cleared, 4)] || 0) * levelRef.current;
 
-    boardRef.current = clearedBoard;
-    linesRef.current = newLines;
-    levelRef.current = newLevel;
-    scoreRef.current = newScore;
+    setBoard(clearedBoard);
+    setLines(newLines);
+    setLevel(newLevel);
+    setScore(newScore);
 
-    // Promote next piece
-    const incoming = nextPieceRef.current;
-    const spawnRow = incoming.row;
-    const spawnCol = incoming.col;
-
-    // Check if the spawn position is blocked => game over
-    if (!isValid(clearedBoard, incoming.shape, spawnRow, spawnCol)) {
-      gameOverRef.current = true;
+    // Game over = next piece cannot spawn on the cleared board
+    if (!canSpawnPiece(clearedBoard, np)) {
       setGameOver(true);
-      syncDisplay();
-      onGameOver(newScore, newLines, newLevel);
       lockingRef.current = false;
+      onGameOver(newScore, newLines, newLevel);
       return;
     }
 
-    pieceRef.current = incoming;
-    nextPieceRef.current = randomPiece();
+    setPiece(np);
+    setNextPiece(randomPiece());
     lockingRef.current = false;
-    syncDisplay();
-  }, [onGameOver, syncDisplay]);
+  }, [onGameOver]);
 
   const moveDown = useCallback(() => {
-    if (gameOverRef.current || lockingRef.current) return;
+    if (gameOverRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     if (isValid(b, p.shape, p.row + 1, p.col)) {
-      pieceRef.current = { ...p, row: p.row + 1 };
-      syncDisplay();
+      setPiece({ ...p, row: p.row + 1 });
     } else {
       lockPiece();
     }
-  }, [lockPiece, syncDisplay]);
+  }, [lockPiece]);
 
   const moveHorizontal = useCallback((dir) => {
-    if (gameOverRef.current || lockingRef.current) return;
+    if (gameOverRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     const newCol = p.col + dir;
     if (isValid(b, p.shape, p.row, newCol)) {
-      pieceRef.current = { ...p, col: newCol };
-      syncDisplay();
+      setPiece({ ...p, col: newCol });
     }
-  }, [syncDisplay]);
+  }, []);
 
   const rotatePiece = useCallback(() => {
-    if (gameOverRef.current || lockingRef.current) return;
+    if (gameOverRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     const rotated = rotate(p.shape);
     for (const kick of [0, -1, 1, -2, 2]) {
       if (isValid(b, rotated, p.row, p.col + kick)) {
-        pieceRef.current = { ...p, shape: rotated, col: p.col + kick };
-        syncDisplay();
+        setPiece({ ...p, shape: rotated, col: p.col + kick });
         return;
       }
     }
-  }, [syncDisplay]);
+  }, []);
 
   const hardDrop = useCallback(() => {
-    if (gameOverRef.current || lockingRef.current) return;
+    if (gameOverRef.current) return;
     const p = pieceRef.current;
     const b = boardRef.current;
     let dropRow = p.row;
     while (isValid(b, p.shape, dropRow + 1, p.col)) dropRow++;
-    pieceRef.current = { ...p, row: dropRow };
-    syncDisplay();
-    // Small delay so player sees the piece at bottom before it locks
-    setTimeout(() => lockPiece(), 30);
-  }, [lockPiece, syncDisplay]);
+    // Update piece state then lock on next tick to let state propagate
+    setPiece(prev => ({ ...prev, row: dropRow }));
+    setTimeout(() => lockPiece(), 16);
+  }, [lockPiece]);
 
-  // Gravity tick — re-subscribes when level changes
+  // Gravity tick
   useEffect(() => {
     if (gameOver) return;
     const speed = Math.max(100, TICK_MS - (level - 1) * 50);
@@ -328,9 +316,9 @@ function GameScreen({ onGameOver, onMenu }) {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [moveHorizontal, rotatePiece, hardDrop]);
+  }, [moveHorizontal, moveDown, rotatePiece, hardDrop]);
 
-  // Touch handlers
+  // Touch handlers — swipe on board
   const handleTouchStart = useCallback((e) => {
     const touch = e.nativeEvent.touches[0];
     touchStartRef.current = { x: touch.pageX, y: touch.pageY };
@@ -345,44 +333,45 @@ function GameScreen({ onGameOver, onMenu }) {
     const absDy = Math.abs(dy);
     touchStartRef.current = null;
 
-    if (absDx < 10 && absDy < 10) {
-      rotatePiece();
-      return;
-    }
+    if (absDx < 10 && absDy < 10) { rotatePiece(); return; }
     if (absDx > absDy) {
       moveHorizontal(dx > 0 ? 1 : -1);
     } else {
-      if (dy > 0) hardDrop();
-      else rotatePiece();
+      dy > 0 ? hardDrop() : rotatePiece();
     }
   }, [moveHorizontal, rotatePiece, hardDrop]);
 
-  // Build render board (current piece + ghost overlaid on settled board)
-  const renderBoard = displayBoard.map(r => [...r]);
-  const rp = displayPiece;
-  if (rp && !gameOver) {
-    // Ghost
-    let ghostRow = rp.row;
-    while (isValid(boardRef.current, rp.shape, ghostRow + 1, rp.col)) ghostRow++;
-    if (ghostRow !== rp.row) {
-      for (let r = 0; r < rp.shape.length; r++)
-        for (let c = 0; c < rp.shape[0].length; c++)
-          if (rp.shape[r][c] && ghostRow + r >= 0 && ghostRow + r < ROWS && !renderBoard[ghostRow + r][rp.col + c])
-            renderBoard[ghostRow + r][rp.col + c] = 'ghost';
+  // Build display board (board + falling piece + ghost)
+  const displayBoard = board.map(r => [...r]);
+
+  // Ghost
+  if (piece && cellSize > 0) {
+    let ghostRow = piece.row;
+    while (isValid(board, piece.shape, ghostRow + 1, piece.col)) ghostRow++;
+    if (ghostRow !== piece.row) {
+      for (let r = 0; r < piece.shape.length; r++)
+        for (let c = 0; c < piece.shape[0].length; c++)
+          if (piece.shape[r][c]) {
+            const nr = ghostRow + r;
+            const nc = piece.col + c;
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !displayBoard[nr][nc])
+              displayBoard[nr][nc] = 'ghost';
+          }
     }
-    // Active piece
-    for (let r = 0; r < rp.shape.length; r++)
-      for (let c = 0; c < rp.shape[0].length; c++)
-        if (rp.shape[r][c] && rp.row + r >= 0 && rp.row + r < ROWS && rp.col + c >= 0 && rp.col + c < COLS)
-          renderBoard[rp.row + r][rp.col + c] = rp.type;
   }
 
-  const RESERVED_HEIGHT = 130;
-  const maxBoardHeight = layout.height > 0 ? layout.height - RESERVED_HEIGHT : 0;
-  const maxBoardWidth = layout.width > 0 ? layout.width - 32 : 0;
-  const cellFromWidth = maxBoardWidth > 0 ? Math.floor(maxBoardWidth / COLS) : 0;
-  const cellFromHeight = maxBoardHeight > 0 ? Math.floor(maxBoardHeight / ROWS) : 0;
-  const cellSize = Math.min(cellFromWidth, cellFromHeight, 28);
+  // Active piece
+  if (piece) {
+    for (let r = 0; r < piece.shape.length; r++)
+      for (let c = 0; c < piece.shape[0].length; c++)
+        if (piece.shape[r][c]) {
+          const nr = piece.row + r;
+          const nc = piece.col + c;
+          if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS)
+            displayBoard[nr][nc] = piece.type;
+        }
+  }
+
   const boardPixelWidth = cellSize * COLS + 4;
   const boardPixelHeight = cellSize * ROWS + 4;
 
@@ -419,12 +408,12 @@ function GameScreen({ onGameOver, onMenu }) {
         <View style={s.infoItem}>
           <Text style={s.infoLabel}>NEXT</Text>
           <View style={s.nextPieceBox}>
-            {displayNext.shape.map((row, r) => (
+            {nextPiece.shape.map((row, r) => (
               <View key={r} style={{ flexDirection: 'row' }}>
                 {row.map((v, c) => (
                   <View key={c} style={{
                     width: 10, height: 10,
-                    backgroundColor: v ? PIECE_COLORS[displayNext.type] : 'transparent',
+                    backgroundColor: v ? PIECE_COLORS[nextPiece.type] : 'transparent',
                     borderRadius: 2,
                   }} />
                 ))}
@@ -442,7 +431,7 @@ function GameScreen({ onGameOver, onMenu }) {
           onResponderGrant={handleTouchStart}
           onResponderRelease={handleTouchEnd}
         >
-          {renderBoard.map((row, r) => (
+          {displayBoard.map((row, r) => (
             <View key={r} style={{ flexDirection: 'row' }}>
               {row.map((cell, c) => (
                 <View
@@ -452,7 +441,8 @@ function GameScreen({ onGameOver, onMenu }) {
                     height: cellSize,
                     backgroundColor: cell === 'ghost'
                       ? 'rgba(255,255,255,0.06)'
-                      : cell ? PIECE_COLORS[cell]
+                      : cell
+                        ? PIECE_COLORS[cell]
                         : 'rgba(255,255,255,0.02)',
                     borderWidth: cell && cell !== 'ghost' ? 0.5 : 0,
                     borderColor: 'rgba(0,0,0,0.2)',
@@ -470,7 +460,7 @@ function GameScreen({ onGameOver, onMenu }) {
   );
 }
 
-// ─── ROOT ───────────────────────────────────────────────────────────────────
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function TetrisGame() {
   const [screen, setScreen] = useState('home');
   const [lastScore, setLastScore] = useState(0);
@@ -505,7 +495,7 @@ export default function TetrisGame() {
   return null;
 }
 
-// ─── STYLES ─────────────────────────────────────────────────────────────────
+// ─── STYLES ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   homeContainer: {
     flex: 1, backgroundColor: '#0d0d17',
@@ -519,104 +509,44 @@ const s = StyleSheet.create({
   },
   homeBackText: { color: '#6B6B8E', fontSize: 12, fontWeight: '700' },
   homeEmoji: { fontSize: 56 },
-  homeTitle: {
-    fontSize: 44, fontWeight: '900', color: '#fff',
-    letterSpacing: 4, textAlign: 'center', lineHeight: 48,
-  },
+  homeTitle: { fontSize: 44, fontWeight: '900', color: '#fff', letterSpacing: 4, textAlign: 'center', lineHeight: 48 },
   homeSubtitle: { fontSize: 13, color: '#6B6B8E', letterSpacing: 1.5 },
-  previewBlocks: {
-    flexDirection: 'row', gap: 4, padding: 10,
-    backgroundColor: '#12121e', borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-  },
+  previewBlocks: { flexDirection: 'row', gap: 4, padding: 10, backgroundColor: '#12121e', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   previewBlock: { width: 24, height: 24, borderRadius: 4 },
-  highScoreBox: {
-    alignItems: 'center', gap: 4,
-    backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 10,
-    borderRadius: 12, borderWidth: 1, borderColor: 'rgba(243,156,18,0.2)',
-  },
+  highScoreBox: { alignItems: 'center', gap: 4, backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(243,156,18,0.2)' },
   highScoreLabel: { fontSize: 9, color: '#6B6B8E', fontWeight: '700', letterSpacing: 2 },
   highScoreVal: { fontSize: 22, color: '#F39C12', fontWeight: '900' },
-  startBtn: {
-    backgroundColor: '#2980B9', paddingHorizontal: 52, paddingVertical: 16,
-    borderRadius: 14, shadowColor: '#2980B9',
-    shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8,
-  },
+  startBtn: { backgroundColor: '#2980B9', paddingHorizontal: 52, paddingVertical: 16, borderRadius: 14, shadowColor: '#2980B9', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 14, elevation: 8 },
   startBtnText: { color: '#fff', fontSize: 18, fontWeight: '800', letterSpacing: 3 },
-  howBox: {
-    backgroundColor: 'rgba(41,128,185,0.08)', padding: 16, borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(41,128,185,0.2)', alignItems: 'center', gap: 8,
-  },
+  howBox: { backgroundColor: 'rgba(41,128,185,0.08)', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(41,128,185,0.2)', alignItems: 'center', gap: 8 },
   howTitle: { color: '#2980B9', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
   howText: { color: '#6B6B8E', fontSize: 12, textAlign: 'center', lineHeight: 20 },
-  gameContainer: {
-    flex: 1, alignItems: 'center', backgroundColor: '#0d0d17',
-    paddingTop: Platform.OS === 'android' ? 60 : 8, gap: 8,
-  },
-  gameHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    width: '100%', paddingHorizontal: 16,
-  },
-  backBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-  },
+  gameContainer: { flex: 1, alignItems: 'center', backgroundColor: '#0d0d17', paddingTop: Platform.OS === 'android' ? 60 : 8, gap: 8 },
+  gameHeader: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingHorizontal: 16 },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#12121e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   backBtnText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
-  levelText: {
-    flex: 1, textAlign: 'center',
-    color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 3,
-  },
-  scoreBox: {
-    alignItems: 'center', backgroundColor: '#12121e',
-    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 4,
-    minWidth: 60, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-  },
+  levelText: { flex: 1, textAlign: 'center', color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 3 },
+  scoreBox: { alignItems: 'center', backgroundColor: '#12121e', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 4, minWidth: 60, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   scoreNum: { color: '#F39C12', fontSize: 16, fontWeight: '900' },
   scoreLabel: { color: '#6B6B8E', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
   infoRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16 },
-  infoItem: {
-    alignItems: 'center', backgroundColor: '#12121e',
-    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-  },
+  infoItem: { alignItems: 'center', backgroundColor: '#12121e', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   infoVal: { color: '#fff', fontSize: 16, fontWeight: '900' },
   infoLabel: { color: '#6B6B8E', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
   nextPieceBox: { marginTop: 4, gap: 1 },
-  board: {
-    backgroundColor: '#0a0a14', borderRadius: 8,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-  },
-  hint: {
-    color: '#2a2a48', fontSize: 10, fontWeight: '600',
-    letterSpacing: 0.3, textAlign: 'center', paddingHorizontal: 16,
-  },
-  overlay: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#0d0d17', gap: 16, padding: 32,
-    paddingTop: Platform.OS === 'android' ? 60 : 32,
-  },
+  board: { backgroundColor: '#0a0a14', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  hint: { color: '#2a2a48', fontSize: 10, fontWeight: '600', letterSpacing: 0.3, textAlign: 'center', paddingHorizontal: 16 },
+  overlay: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0d17', gap: 16, padding: 32, paddingTop: Platform.OS === 'android' ? 60 : 32 },
   overlayEmoji: { fontSize: 64 },
   overlayTitle: { color: '#E74C3C', fontSize: 32, fontWeight: '900', letterSpacing: 4 },
-  overStatsRow: {
-    flexDirection: 'row', backgroundColor: '#12121e',
-    borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
-    overflow: 'hidden', width: '100%',
-  },
+  overStatsRow: { flexDirection: 'row', backgroundColor: '#12121e', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', overflow: 'hidden', width: '100%' },
   overStat: { flex: 1, alignItems: 'center', paddingVertical: 16 },
   overStatDiv: { width: 1, backgroundColor: 'rgba(255,255,255,0.05)' },
   overStatVal: { color: '#fff', fontSize: 20, fontWeight: '900' },
   overStatLabel: { color: '#6B6B8E', fontSize: 9, fontWeight: '700', letterSpacing: 1, marginTop: 4 },
   btnRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  btnPrimary: {
-    backgroundColor: '#2980B9', paddingHorizontal: 28, paddingVertical: 16,
-    borderRadius: 14, shadowColor: '#2980B9',
-    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6,
-  },
+  btnPrimary: { backgroundColor: '#2980B9', paddingHorizontal: 28, paddingVertical: 16, borderRadius: 14, shadowColor: '#2980B9', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6 },
   btnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 2 },
-  btnSecondary: {
-    backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 16,
-    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-  },
+  btnSecondary: { backgroundColor: '#12121e', paddingHorizontal: 24, paddingVertical: 16, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   btnSecondaryText: { color: '#6B6B8E', fontSize: 15, fontWeight: '700' },
 });

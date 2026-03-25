@@ -6,11 +6,12 @@ import {
   ScrollView,
   StyleSheet,
   Dimensions,
-  Image,
   SafeAreaView,
   StatusBar,
   Platform,
   Animated,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -62,24 +63,16 @@ const GAMES = [
   },
   {
     id: 'tetris_extreme',
-    title: 'TETRIS EXTREME',
-    subtitle: 'Blocks at hyper-speed',
+    title: 'TETRIS',
+    subtitle: 'Classic block stacking',
     icon: '🕹️',
     colors: ['#2980B9', '#1ABC9C'],
     bestScore: '0',
   },
   {
-    id: 'dodge_rush',
-    title: 'DODGE RUSH',
-    subtitle: 'Intense obstacle avoidance',
-    icon: '🏃',
-    colors: ['#E67E22', '#F39C12'],
-    bestScore: '0',
-  },
-  {
     id: 'number_drop',
     title: 'NUMBER DROP',
-    subtitle: 'Catch falling numbers in order',
+    subtitle: 'Merge falling numbers',
     icon: '🔟',
     colors: ['#27AE60', '#2ECC71'],
     bestScore: '0',
@@ -186,10 +179,11 @@ const GameCard = ({ game, onPlay, index }) => {
             <TouchableOpacity 
               style={styles.playButton}
               onPress={() => onPlay(game.id)}
+              activeOpacity={0.8}
             >
               <Text style={[styles.playButtonText, { color: game.colors[0] }]}>PLAY</Text>
             </TouchableOpacity>
-            <Text style={styles.bestScoreText}>Best Score: {game.bestScore}</Text>
+            <Text style={styles.bestScoreText}>Best: {game.bestScore}</Text>
           </View>
         </View>
         <View style={styles.cardDecor} />
@@ -205,20 +199,29 @@ export default function ArcadeVaultHome() {
   const statsOpacity = useRef(new Animated.Value(0)).current;
   const joystickPulse = useRef(new Animated.Value(1)).current;
   const [gamesWithScores, setGamesWithScores] = useState(GAMES);
+  const [totalPoints, setTotalPoints] = useState(0);
+  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'stats' | 'settings'
+
+  const loadScores = async () => {
+    let total = 0;
+    const updatedGames = await Promise.all(GAMES.map(async (g) => {
+      try {
+        const score = await AsyncStorage.getItem(`@highscore_${g.id}`);
+        if (score) {
+          const num = parseInt(score, 10);
+          if (!isNaN(num)) total += num;
+          return { ...g, bestScore: score };
+        }
+        return { ...g, bestScore: '0' };
+      } catch (e) {
+        return g;
+      }
+    }));
+    setGamesWithScores(updatedGames);
+    setTotalPoints(total);
+  };
 
   useEffect(() => {
-    // Fetch top scores
-    const loadScores = async () => {
-      const updatedGames = await Promise.all(GAMES.map(async (g) => {
-        try {
-          const score = await AsyncStorage.getItem(`@highscore_${g.id}`);
-          return { ...g, bestScore: score ? score : '0' };
-        } catch (e) {
-          return g;
-        }
-      }));
-      setGamesWithScores(updatedGames);
-    };
     loadScores();
 
     // Header anim
@@ -266,14 +269,40 @@ export default function ArcadeVaultHome() {
       number_merge: '/number_merge',
       tic_tac_toe: '/tic_tac_toe',
       tetris_extreme: '/tetris',
-      dodge_rush: '/dodge_rush',
       number_drop: '/number_drop',
     };
     if (routes[gameId]) {
       router.push(routes[gameId]);
-    } else {
-      alert(`${gameId} coming soon!`);
     }
+  };
+
+  const getRank = (score) => {
+    if (score > 10000) return 'ELITE GAMER';
+    if (score > 5000) return 'PRO PLAYER';
+    if (score > 1000) return 'ARCADE MASTER';
+    if (score > 100) return 'SKILLED NOVICE';
+    return 'NOVICE EXPLORER';
+  };
+
+  const handleClearProgress = () => {
+    Alert.alert(
+      "Clear Progress",
+      "Are you sure you want to reset all high scores? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Reset", 
+          style: "destructive",
+          onPress: async () => {
+            const keys = GAMES.map(g => `@highscore_${g.id}`);
+            keys.push('@score_data_color_flood', '@score_data_tic_tac_toe', '@score_data_number_merge', '@score_data_tetris_extreme');
+            await AsyncStorage.multiRemove(keys);
+            loadScores();
+            setActiveTab('home');
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -292,10 +321,7 @@ export default function ArcadeVaultHome() {
               <Text style={styles.logoText}>ARCADE VAULT</Text>
             </View>
             <View style={styles.avatarContainer}>
-              <Image 
-                source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCct2FKxpYs0ErYsA3k2MzEWoVii91Vykzxp-hvaT-N0wUEaoAmW7wsGo3sHJetCyOL6u7SFgHpmrA9QQ5l_8iXBTgJ9vgKiz0MSSbO5iYa1P8eRce4vT7tj_ifkKVqdFn312SIeQAC9Gb-XYDOav4Sx5TUsrT7WREPAO6pfspU1rfQJcvlGnF52CaLolr4ELsL8Wmyq2m69Ec2JNY0JJsDIGoYNWRfFQrmNwe_KKMhbd9iJbh_DXA7JkNblfpO4lqOVlFI6wuwDwUf' }} 
-                style={styles.avatar} 
-              />
+              <MaterialCommunityIcons name="account-circle" size={32} color={THEME.onSurfaceVariant} />
             </View>
           </View>
         </SafeAreaView>
@@ -304,8 +330,8 @@ export default function ArcadeVaultHome() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Welcome Message */}
         <Animated.View style={{ opacity: statsOpacity, marginBottom: 12 }}>
-            <Text style={styles.welcomeTitle}>Welcome, Recruit!</Text>
-            <Text style={styles.welcomeSub}>Complete your first vault to unlock more.</Text>
+            <Text style={styles.welcomeTitle}>Welcome back!</Text>
+            <Text style={styles.welcomeSub}>Pick a vault and start playing.</Text>
         </Animated.View>
 
         {/* Player Stats Bar */}
@@ -317,17 +343,17 @@ export default function ArcadeVaultHome() {
             }
         ]}>
           <View>
-            <Text style={styles.playerName}>New Player</Text>
-            <Text style={styles.playerTier}>NOVICE EXPLORER</Text>
+            <Text style={styles.playerName}>Guest Player</Text>
+            <Text style={styles.playerTier}>{getRank(totalPoints)}</Text>
           </View>
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>⭐ 0</Text>
-              <Text style={styles.statLabel}>COINS</Text>
+              <Text style={styles.statValue}>⭐ {totalPoints}</Text>
+              <Text style={styles.statLabel}>POINTS</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={[styles.statValue, { color: THEME.secondary }]}>LVL 1</Text>
+              <Text style={[styles.statValue, { color: THEME.secondary }]}>LVL {Math.floor(totalPoints / 1000) + 1}</Text>
               <Text style={styles.statLabel}>RANK</Text>
             </View>
           </View>
@@ -349,20 +375,93 @@ export default function ArcadeVaultHome() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
+      {/* Statistics Modal */}
+      <Modal visible={activeTab === 'stats'} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+            <BlurView intensity={80} tint="dark" style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>STATISTICS</Text>
+                    <TouchableOpacity onPress={() => setActiveTab('home')}>
+                        <MaterialCommunityIcons name="close" size={28} color="white" />
+                    </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.modalScroll}>
+                    <View style={styles.totalStatsCard}>
+                        <Text style={styles.totalPointsVal}>{totalPoints}</Text>
+                        <Text style={styles.totalPointsLabel}>TOTAL ARCADE POINTS</Text>
+                    </View>
+                    <Text style={styles.statsSubtitle}>VAULT BREAKDOWN</Text>
+                    {gamesWithScores.map(game => (
+                        <View key={game.id} style={styles.statRowItem}>
+                            <Text style={styles.statIcon}>{game.icon}</Text>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                                <Text style={styles.statGameTitle}>{game.title}</Text>
+                                <Text style={styles.statGameScore}>Best: {game.bestScore}</Text>
+                            </View>
+                            <MaterialCommunityIcons name="chevron-right" size={20} color={THEME.outlineVariant} />
+                        </View>
+                    ))}
+                    <View style={{ height: 40 }} />
+                </ScrollView>
+            </BlurView>
+        </View>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal visible={activeTab === 'settings'} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+            <BlurView intensity={80} tint="dark" style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>SETTINGS</Text>
+                    <TouchableOpacity onPress={() => setActiveTab('home')}>
+                        <MaterialCommunityIcons name="close" size={28} color="white" />
+                    </TouchableOpacity>
+                </View>
+                <View style={styles.modalScroll}>
+                    <View style={styles.settingsSection}>
+                        <Text style={styles.settingsLabel}>DATA MANAGEMENT</Text>
+                        <TouchableOpacity style={styles.settingsBtn} onPress={handleClearProgress}>
+                            <MaterialCommunityIcons name="trash-can-outline" size={22} color={THEME.error} />
+                            <Text style={[styles.settingsBtnText, { color: THEME.error }]}>Reset All Progress</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.settingsSection}>
+                        <Text style={styles.settingsLabel}>ABOUT</Text>
+                        <View style={styles.aboutCard}>
+                            <Text style={styles.aboutText}>ARCADE VAULT v1.0.0</Text>
+                            <Text style={styles.aboutSub}>A collection of premium arcade classics. Built for APKPure release.</Text>
+                        </View>
+                    </View>
+
+                    <View style={{ flex: 1 }} />
+                    <Text style={styles.versionText}>Released 2024 • Arcade Vault Team</Text>
+                    <View style={{ height: 40 }} />
+                </View>
+            </BlurView>
+        </View>
+      </Modal>
+
       {/* Bottom Nav Bar */}
       <View style={styles.bottomNavContainer}>
         <BlurView intensity={25} tint="dark" style={styles.bottomNav}>
-          <TouchableOpacity style={[styles.navItem, styles.navItemActive]}>
-            <MaterialCommunityIcons name="home" size={24} color="white" />
+          <TouchableOpacity 
+            style={[styles.navItem, activeTab === 'home' && styles.navItemActive]}
+            onPress={() => setActiveTab('home')}
+          >
+            <MaterialCommunityIcons name="home" size={24} color={activeTab === 'home' ? 'white' : THEME.onSurfaceVariant} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => alert('Leaderboards coming soon!')}>
-            <MaterialCommunityIcons name="chart-bar" size={24} color={THEME.onSurfaceVariant} />
+          <TouchableOpacity 
+            style={[styles.navItem, activeTab === 'stats' && styles.navItemActive]}
+            onPress={() => setActiveTab('stats')}
+          >
+            <MaterialCommunityIcons name="chart-bar" size={24} color={activeTab === 'stats' ? 'white' : THEME.onSurfaceVariant} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => alert('Achievements coming soon!')}>
-            <MaterialCommunityIcons name="trophy" size={24} color={THEME.onSurfaceVariant} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => alert('Settings coming soon!')}>
-            <MaterialCommunityIcons name="cog" size={24} color={THEME.onSurfaceVariant} />
+          <TouchableOpacity 
+            style={[styles.navItem, activeTab === 'settings' && styles.navItemActive]}
+            onPress={() => setActiveTab('settings')}
+          >
+            <MaterialCommunityIcons name="cog" size={24} color={activeTab === 'settings' ? 'white' : THEME.onSurfaceVariant} />
           </TouchableOpacity>
         </BlurView>
       </View>
@@ -406,13 +505,10 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
     borderColor: 'rgba(92, 184, 253, 0.2)',
-  },
-  avatar: {
-    width: '100%',
-    height: '100%',
   },
   scrollContent: {
     paddingHorizontal: 24,
@@ -595,5 +691,133 @@ const styles = StyleSheet.create({
   navItemActive: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 99,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    height: height * 0.8,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    overflow: 'hidden',
+    backgroundColor: THEME.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: 'white',
+    letterSpacing: 2,
+  },
+  modalScroll: {
+    flex: 1,
+  },
+  totalStatsCard: {
+    backgroundColor: THEME.surfaceContainerHighest,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(92, 184, 253, 0.1)',
+  },
+  totalPointsVal: {
+    fontSize: 48,
+    fontWeight: '900',
+    color: THEME.primary,
+  },
+  totalPointsLabel: {
+    fontSize: 10,
+    color: THEME.onSurfaceVariant,
+    fontWeight: '700',
+    letterSpacing: 2,
+    marginTop: 4,
+  },
+  statsSubtitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.onSurfaceVariant,
+    marginBottom: 16,
+    letterSpacing: 1,
+  },
+  statRowItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.surfaceContainerLow,
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.03)',
+  },
+  statIcon: {
+    fontSize: 24,
+  },
+  statGameTitle: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  statGameScore: {
+    color: THEME.onSurfaceVariant,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  settingsSection: {
+    marginBottom: 32,
+  },
+  settingsLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.onSurfaceVariant,
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  settingsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 113, 108, 0.05)',
+    padding: 16,
+    borderRadius: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 113, 108, 0.1)',
+  },
+  settingsBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  aboutCard: {
+    backgroundColor: THEME.surfaceContainerHighest,
+    padding: 20,
+    borderRadius: 16,
+    gap: 8,
+  },
+  aboutText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  aboutSub: {
+    color: THEME.onSurfaceVariant,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  versionText: {
+    textAlign: 'center',
+    color: THEME.onSurfaceVariant,
+    fontSize: 11,
+    opacity: 0.5,
   },
 });
